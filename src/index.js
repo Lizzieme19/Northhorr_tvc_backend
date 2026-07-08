@@ -32,6 +32,9 @@ const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:3000',
   // Add your Render frontend URL here
   process.env.RENDER_FRONTEND_URL,
+  // Allow the backend's own URL for Swagger UI
+  process.env.RENDER_BACKEND_URL || 'https://northhorr-tvc-backend.onrender.com',
+  'http://localhost:5000',
 ].filter(Boolean);
 
 app.use(cors({

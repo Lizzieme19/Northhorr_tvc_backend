@@ -18,8 +18,12 @@ const options = {
         description: 'Development server',
       },
       {
+        url: 'https://northhorr-tvc-backend.onrender.com',
+        description: 'Production server (Render)',
+      },
+      {
         url: process.env.API_URL || 'https://api.ntvc.ac.ke',
-        description: 'Production server',
+        description: 'Custom production server',
       },
     ],
     components: {
