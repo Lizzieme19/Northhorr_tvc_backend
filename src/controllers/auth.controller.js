@@ -24,7 +24,19 @@ const login = async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    // Check if login is using admission number
+    let user;
+    const studentByAdmission = await prisma.student.findUnique({
+      where: { admission_no: email },
+      include: { user: true },
+    });
+
+    if (studentByAdmission) {
+      user = studentByAdmission.user;
+    } else {
+      user = await prisma.user.findUnique({ where: { email } });
+    }
+
     if (!user || !user.is_active) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -32,6 +44,34 @@ const login = async (req, res) => {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Check fee clearance for students
+    if (user.role === 'STUDENT') {
+      const student = await prisma.student.findUnique({
+        where: { user_id: user.id },
+        include: { fee_records: true },
+      });
+
+      if (!student) {
+        return res.status(401).json({ error: 'Student record not found' });
+      }
+
+      // Check if fees are cleared
+      const totalFees = student.fee_records.reduce((sum, record) => sum + record.amount, 0);
+      const paidFees = student.fee_records
+        .filter(record => record.status === 'PAID')
+        .reduce((sum, record) => sum + record.amount, 0);
+
+      if (paidFees < totalFees) {
+        return res.status(403).json({ 
+          error: 'Fee clearance required',
+          message: 'Please clear your fees before logging in',
+          totalFees,
+          paidFees,
+          balance: totalFees - paidFees,
+        });
+      }
     }
 
     const { accessToken, refreshToken } = generateTokens(user.id, user.role);
@@ -61,6 +101,7 @@ const login = async (req, res) => {
         id: user.id,
         email: user.email,
         role: user.role,
+        mustChangePassword: user.must_change_password,
         studentId: studentInfo?.id || null,
         admissionNo: studentInfo?.admission_no || null,
       },
@@ -139,7 +180,10 @@ const changePassword = async (req, res) => {
     const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: req.user.id },
-      data: { password: hashed },
+      data: { 
+        password: hashed,
+        must_change_password: false,
+      },
     });
 
     res.json({ message: 'Password changed successfully' });

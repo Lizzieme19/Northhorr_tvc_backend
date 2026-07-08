@@ -15,6 +15,9 @@ enum Role {
   ADMIN
   DEPT_HEAD
   FINANCE
+  STAFF
+  PROCUREMENT
+  HR
 }
 
 enum ApplicationType {
@@ -48,14 +51,70 @@ enum FeeType {
   STUDENT_ID
 }
 
+// Staff Management Enums
+enum EmploymentStatus {
+  ACTIVE
+  PROBATION
+  TERMINATED
+  RESIGNED
+  RETIRED
+  ON_LEAVE
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  MATERNITY
+  PATERNITY
+  COMPASSIONATE
+  STUDY
+  UNPAID
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// Procurement Enums
+enum RequisitionStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ORDERED
+  COMPLETED
+  CANCELLED
+}
+
+enum LPOStatus {
+  DRAFT
+  APPROVED
+  ISSUED
+  PARTIALLY_RECEIVED
+  FULLY_RECEIVED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  password     String
-  role         Role     @default(STUDENT)
-  is_active    Boolean  @default(true)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  email                String   @unique
+  password             String
+  role                 Role     @default(STUDENT)
+  is_active            Boolean  @default(true)
+  must_change_password Boolean  @default(false)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
 
   student           Student?
   dept_head_of      Department? @relation("DeptHead")
@@ -63,6 +122,11 @@ model User {
   generated_letters AdmissionLetter[] @relation("GeneratedBy")
   fee_records       FeeRecord[] @relation("ReceivedBy")
   refresh_tokens    RefreshToken[]
+  staff             Staff?
+  approved_leaves   LeaveRequest[] @relation("ApprovedBy")
+  created_requisitions PurchaseRequisition[] @relation("CreatedBy")
+  approved_requisitions PurchaseRequisition[] @relation("ApprovedBy")
+  approved_lpos      LPO[] @relation("ApprovedBy")
 }
 
 model RefreshToken {
@@ -83,11 +147,18 @@ model Department {
   icon        String?
   image_url   String?
   head_user_id String? @unique
+  shortcode   String  @unique // e.g. "ECS", "CEE", "DSW"
+  intake_months String  @default("J,M,S") // Comma-separated month shortcodes e.g. "J,M,S"
 
   head        User?         @relation("DeptHead", fields: [head_user_id], references: [id])
   courses     Course[]
   applications Application[]
   students    Student[]
+  staff       Staff[]
+  budgets     Budget[]
+  purchase_requisitions PurchaseRequisition[]
+  lpos        LPO[]
+  assets      Asset[]
 }
 
 model Course {
@@ -159,6 +230,11 @@ model Application {
   doc_id_copy     String?
   doc_birth_cert  String?
   doc_medical     String?
+  // ID copies (front and back)
+  id_copy_front_url   String?
+  id_copy_back_url    String?
+  parent_id_copy_front_url String?
+  parent_id_copy_back_url  String?
 
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -182,6 +258,16 @@ model Student {
   year            Int
 
   photo_url       String?
+  profile_picture_url String? // Student profile picture for ID card
+
+  // ID copies
+  id_copy_front_url   String?
+  id_copy_back_url    String?
+  parent_id_copy_front_url String?
+  parent_id_copy_back_url  String?
+
+  // Admission month shortcode (e.g., 'J', 'M', 'S')
+  admission_month_shortcode String?
 
   // Fee flags
   helb_applied        Boolean @default(false)
@@ -224,4 +310,445 @@ model FeeRecord {
 
   student     Student  @relation(fields: [student_id], references: [id])
   receiver    User     @relation("ReceivedBy", fields: [received_by], references: [id])
+}
+
+model IntakeMonth {
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., "JANUARY", "MAY", "SEPTEMBER"
+  shortcode   String   @unique // e.g., "J", "M", "S"
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}
+
+// Staff Management Models
+model Designation {
+  id            String   @id @default(uuid())
+  title         String   @unique
+  grade_level   String?
+  description   String?
+  salary_min    Float?
+  salary_max    Float?
+  responsibilities String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  staff         Staff[]
+}
+
+model Staff {
+  id                String   @id @default(uuid())
+  user_id           String   @unique
+  employee_number   String   @unique
+  designation_id    String
+  department_id     String
+  reports_to_id     String?
+
+  // Personal Details
+  first_name        String
+  last_name         String
+  gender            String
+  date_of_birth    DateTime
+  phone             String
+  address           String?
+  emergency_contact String?
+  emergency_phone   String?
+
+  // Employment Details
+  employment_status EmploymentStatus @default(ACTIVE)
+  employment_type   String? // FULL_TIME, PART_TIME, CONTRACT
+  date_hired        DateTime
+  date_terminated   DateTime?
+  termination_reason String?
+  salary            Float
+  bank_account      String?
+  bank_name         String?
+  kra_pin           String?
+  nssf_number       String?
+  nhif_number       String?
+
+  // Profile
+  profile_picture_url String?
+  cv_url            String?
+  certificates_url  String?
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  user              User     @relation(fields: [user_id], references: [id])
+  designation       Designation @relation(fields: [designation_id], references: [id])
+  department        Department @relation(fields: [department_id], references: [id])
+  reports_to        Staff?   @relation("ReportsTo", fields: [reports_to_id], references: [id])
+  subordinates      Staff[]  @relation("ReportsTo")
+  leave_requests    LeaveRequest[]
+  leave_balances    LeaveBalance[]
+  employment_records EmploymentRecord[]
+  custodied_assets  Asset[]
+}
+
+model LeaveRequest {
+  id              String      @id @default(uuid())
+  staff_id        String
+  leave_type      LeaveType
+  start_date      DateTime
+  end_date        DateTime
+  total_days      Int
+  reason          String?
+  status          LeaveStatus @default(PENDING)
+  approved_by     String?
+  approved_at     DateTime?
+  rejection_reason String?
+  attachments     String?
+
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+
+  staff           Staff       @relation(fields: [staff_id], references: [id])
+  approver        User?       @relation("ApprovedBy", fields: [approved_by], references: [id])
+}
+
+model LeaveBalance {
+  id              String   @id @default(uuid())
+  staff_id        String
+  leave_type      LeaveType
+  year            Int
+  total_days      Int
+  used_days       Int      @default(0)
+  carried_forward Int      @default(0)
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  staff           Staff    @relation(fields: [staff_id], references: [id])
+
+  @@unique([staff_id, leave_type, year])
+}
+
+model EmploymentRecord {
+  id              String   @id @default(uuid())
+  staff_id        String
+  designation_id   String?
+  department_id   String?
+  title           String?
+  salary          Float?
+  start_date      DateTime
+  end_date        DateTime?
+  reason          String?
+
+  created_at      DateTime @default(now())
+
+  staff           Staff    @relation(fields: [staff_id], references: [id])
+}
+
+// Procurement Models
+model Supplier {
+  id              String   @id @default(uuid())
+  name            String
+  contact_person  String?
+  email           String?
+  phone           String
+  address         String?
+  city            String?
+  country         String?
+  tax_id          String?
+  registration_number String?
+  is_approved     Boolean  @default(false)
+  rating          Float?   @default(0)
+  notes           String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  rfqs            RFQ[]
+  lpos            LPO[]
+  invoices        SupplierInvoice[]
+  quotations      Quotation[]
+  inventory_items InventoryItem[]
+}
+
+model PurchaseRequisition {
+  id              String            @id @default(uuid())
+  requisition_no  String            @unique
+  department_id   String
+  requested_by    String
+  approved_by     String?
+  status          RequisitionStatus @default(DRAFT)
+  priority        String?           // LOW, MEDIUM, HIGH, URGENT
+  justification   String?
+  total_amount    Float?
+  approved_at     DateTime?
+  rejection_reason String?
+
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+
+  department      Department        @relation(fields: [department_id], references: [id])
+  requester       User              @relation("CreatedBy", fields: [requested_by], references: [id])
+  approver        User?             @relation("ApprovedBy", fields: [approved_by], references: [id])
+  items           RequisitionItem[]
+  rfqs            RFQ[]
+}
+
+model RequisitionItem {
+  id              String   @id @default(uuid())
+  requisition_id  String
+  item_name       String
+  description     String?
+  quantity        Int
+  unit_price      Float?
+  total_price     Float?
+  specifications  String?
+
+  created_at      DateTime @default(now())
+
+  requisition     PurchaseRequisition @relation(fields: [requisition_id], references: [id], onDelete: Cascade)
+}
+
+model RFQ {
+  id              String   @id @default(uuid())
+  rfq_no          String   @unique
+  requisition_id  String?
+  title           String
+  description     String?
+  opening_date    DateTime
+  closing_date    DateTime
+  status          String   @default("OPEN") // OPEN, CLOSED, AWARDED, CANCELLED
+  awarded_to      String?
+  notes           String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  requisition     PurchaseRequisition? @relation(fields: [requisition_id], references: [id])
+  supplier        Supplier? @relation(fields: [awarded_to], references: [id])
+  quotations      Quotation[]
+  lpos            LPO[]
+}
+
+model Quotation {
+  id              String   @id @default(uuid())
+  rfq_id          String
+  supplier_id     String
+  quotation_no    String
+  amount          Float
+  currency        String   @default("KES")
+  validity_period Int?     // days
+  notes           String?
+  is_selected     Boolean  @default(false)
+
+  submitted_at    DateTime @default(now())
+
+  rfq             RFQ      @relation(fields: [rfq_id], references: [id])
+  supplier        Supplier @relation(fields: [supplier_id], references: [id])
+}
+
+model LPO {
+  id              String   @id @default(uuid())
+  lpo_no          String   @unique
+  rfq_id          String?
+  supplier_id     String
+  department_id   String
+  approved_by     String?
+  status          LPOStatus @default(DRAFT)
+  issue_date      DateTime?
+  delivery_date   DateTime?
+  payment_terms   String?
+  total_amount    Float
+  currency        String   @default("KES")
+  notes           String?
+  pdf_url         String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  rfq             RFQ?      @relation(fields: [rfq_id], references: [id])
+  supplier        Supplier  @relation(fields: [supplier_id], references: [id])
+  department      Department @relation(fields: [department_id], references: [id])
+  approver        User?     @relation("ApprovedBy", fields: [approved_by], references: [id])
+  items           LPOItem[]
+  grns            GRN[]
+  invoices        SupplierInvoice[]
+}
+
+model LPOItem {
+  id              String   @id @default(uuid())
+  lpo_id          String
+  item_name       String
+  description     String?
+  quantity        Int
+  unit_price      Float
+  total_price     Float
+  specifications  String?
+
+  created_at      DateTime @default(now())
+
+  lpo             LPO      @relation(fields: [lpo_id], references: [id], onDelete: Cascade)
+}
+
+model GRN {
+  id              String   @id @default(uuid())
+  grn_no          String   @unique
+  lpo_id          String
+  received_by     String
+  received_date   DateTime @default(now())
+  status          String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  notes           String?
+  discrepancies    String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  lpo             LPO      @relation(fields: [lpo_id], references: [id])
+  items           GRNItem[]
+}
+
+model GRNItem {
+  id              String   @id @default(uuid())
+  grn_id          String
+  item_name       String
+  quantity_ordered Int
+  quantity_received Int
+  quantity_accepted Int
+  batch_number    String?
+  expiry_date     DateTime?
+  condition       String? // GOOD, DAMAGED, DEFECTIVE
+  notes           String?
+
+  created_at      DateTime @default(now())
+
+  grn             GRN      @relation(fields: [grn_id], references: [id], onDelete: Cascade)
+}
+
+model InventoryItem {
+  id              String   @id @default(uuid())
+  item_code       String   @unique
+  name            String
+  description     String?
+  category        String?
+  unit_of_measure String?
+  current_stock   Int      @default(0)
+  minimum_stock   Int      @default(0)
+  maximum_stock   Int?
+  reorder_level   Int      @default(0)
+  location        String?
+  unit_cost       Float?
+  supplier_id     String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  supplier        Supplier? @relation(fields: [supplier_id], references: [id])
+  stock_movements StockMovement[]
+}
+
+model StockMovement {
+  id              String   @id @default(uuid())
+  inventory_item_id String
+  movement_type   String   // IN, OUT, ADJUSTMENT
+  quantity        Int
+  reference       String?
+  notes           String?
+  performed_by    String?
+
+  created_at      DateTime @default(now())
+
+  inventory_item  InventoryItem @relation(fields: [inventory_item_id], references: [id])
+}
+
+model SupplierInvoice {
+  id              String        @id @default(uuid())
+  invoice_no      String        @unique
+  lpo_id          String
+  supplier_id     String
+  amount          Float
+  currency        String        @default("KES")
+  invoice_date    DateTime
+  due_date        DateTime?
+  status          PaymentStatus @default(PENDING)
+  paid_amount     Float         @default(0)
+  payment_date    DateTime?
+  notes           String?
+  attachment_url  String?
+
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+
+  lpo             LPO           @relation(fields: [lpo_id], references: [id])
+  supplier        Supplier      @relation(fields: [supplier_id], references: [id])
+}
+
+model Asset {
+  id              String   @id @default(uuid())
+  asset_code      String   @unique
+  name            String
+  description     String?
+  category        String?
+  serial_number   String?
+  purchase_date   DateTime
+  purchase_cost   Float
+  current_value   Float?
+  location        String?
+  department_id   String?
+  custodian_id    String?
+  depreciation_rate Float?  // percentage
+  accumulated_depreciation Float @default(0)
+  useful_life     Int?     // years
+  status          String   @default("ACTIVE") // ACTIVE, DISPOSED, WRITTEN_OFF
+  disposal_date   DateTime?
+  disposal_reason String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  department      Department? @relation(fields: [department_id], references: [id])
+  custodian       Staff?   @relation(fields: [custodian_id], references: [id])
+  maintenance_records MaintenanceRecord[]
+}
+
+model MaintenanceRecord {
+  id              String   @id @default(uuid())
+  asset_id        String
+  maintenance_type String  // PREVENTIVE, CORRECTIVE
+  description     String
+  cost            Float?
+  performed_by    String?
+  performed_date  DateTime
+  next_due_date   DateTime?
+
+  created_at      DateTime @default(now())
+
+  asset           Asset    @relation(fields: [asset_id], references: [id])
+}
+
+model Budget {
+  id              String   @id @default(uuid())
+  department_id   String
+  fiscal_year     Int
+  category        String?
+  allocated_amount Float
+  spent_amount    Float    @default(0)
+  remaining_amount Float
+  status          String   @default("ACTIVE") // ACTIVE, CLOSED, FROZEN
+  notes           String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  department      Department @relation(fields: [department_id], references: [id])
+
+  @@unique([department_id, fiscal_year, category])
+}
+
+model AuditTrail {
+  id              String   @id @default(uuid())
+  user_id         String?
+  action          String
+  entity_type     String   // REQUISITION, LPO, GRN, INVOICE, etc.
+  entity_id       String?
+  old_values      String?  // JSON string
+  new_values      String?  // JSON string
+  ip_address      String?
+  user_agent      String?
+
+  created_at      DateTime @default(now())
 }

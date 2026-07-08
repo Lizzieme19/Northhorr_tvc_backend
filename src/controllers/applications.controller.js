@@ -3,6 +3,8 @@ const { uploadDocuments } = require('../middleware/upload');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
 const { v4: uuidv4 } = require('uuid');
+const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
+const { sendAdmissionConfirmation } = require('../services/emailService');
 
 // Generate unique application number
 const generateAppNo = () => {
@@ -67,6 +69,11 @@ const submitApplication = async (req, res) => {
         doc_id_copy: docUrls.doc_id_copy || null,
         doc_birth_cert: docUrls.doc_birth_cert || null,
         doc_medical: docUrls.doc_medical || null,
+        // ID copies (front and back)
+        id_copy_front_url: docUrls.id_copy_front || null,
+        id_copy_back_url: docUrls.id_copy_back || null,
+        parent_id_copy_front_url: docUrls.parent_id_copy_front || null,
+        parent_id_copy_back_url: docUrls.parent_id_copy_back || null,
       },
     });
 
@@ -193,7 +200,7 @@ const updateApplicationStatus = async (req, res) => {
       let user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
         user = await prisma.user.create({
-          data: { email, password: hashed, role: 'STUDENT' },
+          data: { email, password: hashed, role: 'STUDENT', must_change_password: true },
         });
       }
 
@@ -202,39 +209,21 @@ const updateApplicationStatus = async (req, res) => {
       const studentIntake = intakeMap[intake] || 'SEPTEMBER';
       const studentYear = parseInt(year) || new Date().getFullYear();
 
-      // Find course to get the shortcode
-      let shortcode = 'GEN';
-      if (application.course_id) {
-        const course = await prisma.course.findUnique({
-          where: { id: application.course_id }
-        });
-        if (course && course.shortcode) {
-          shortcode = course.shortcode.toUpperCase();
-        }
-      }
-
       // Map level (e.g. "Level 3" -> "L3")
       const levelStr = application.level_applied || 'Level 4';
       const levelMatch = levelStr.match(/\d+/);
       const levelCode = levelMatch ? `L${levelMatch[0]}` : 'L4';
 
-      // Map intake (JANUARY -> J, MAY -> M, SEPTEMBER -> S)
-      const firstLetter = studentIntake.charAt(0).toUpperCase();
-      const intakeCode = ['J', 'M', 'S'].includes(firstLetter) ? firstLetter : 'S';
+      // Use the new admission number generator
+      const admissionNo = await generateAdmissionNumber(
+        application.department_id,
+        levelCode,
+        studentIntake,
+        studentYear
+      );
 
-      // Count cohort students to get incremental index
-      const cohortCount = await prisma.student.count({
-        where: {
-          course_id: application.course_id || '',
-          level: levelStr,
-          intake: studentIntake,
-          year: studentYear,
-        }
-      });
-      const incrementalCode = String(cohortCount + 1).padStart(3, '0');
-
-      // Generate final admission number: Shortcode/Level/Incremental/IntakeYear
-      const admissionNo = `${shortcode}/${levelCode}/${incrementalCode}/${intakeCode}${studentYear}`;
+      // Get month shortcode for student record
+      const monthShortcode = getMonthShortcode(studentIntake);
 
       await prisma.student.create({
         data: {
@@ -246,8 +235,42 @@ const updateApplicationStatus = async (req, res) => {
           level: levelStr,
           intake: studentIntake,
           year: studentYear,
+          admission_month_shortcode: monthShortcode,
+          // Copy ID copies from application to student
+          id_copy_front_url: application.id_copy_front_url,
+          id_copy_back_url: application.id_copy_back_url,
+          parent_id_copy_front_url: application.parent_id_copy_front_url,
+          parent_id_copy_back_url: application.parent_id_copy_back_url,
           status: 'ACTIVE',
         },
+      });
+
+      // Send admission confirmation email
+      let courseName = 'N/A';
+      let departmentName = 'N/A';
+      
+      if (application.course_id) {
+        const course = await prisma.course.findUnique({ where: { id: application.course_id } });
+        courseName = course?.name || 'N/A';
+      }
+      
+      if (application.department_id) {
+        const department = await prisma.department.findUnique({ where: { id: application.department_id } });
+        departmentName = department?.name || 'N/A';
+      }
+      
+      const studentData = {
+        admission_no: admissionNo,
+        course: courseName,
+        department: departmentName,
+        level: levelStr,
+        intake: studentIntake,
+        year: studentYear,
+      };
+      
+      // Send email asynchronously (don't block response)
+      sendAdmissionConfirmation(email, studentData, tempPassword).catch(err => {
+        console.error('Failed to send admission email:', err);
       });
 
       return res.json({
@@ -256,6 +279,7 @@ const updateApplicationStatus = async (req, res) => {
         student_credentials: {
           email,
           temporary_password: tempPassword,
+          admission_no: admissionNo,
           note: 'Student should change password on first login',
         },
       });

@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { sendFeeReminder } = require('../services/emailService');
 
 // GET /api/finance/students
 const getFinanceStudents = async (req, res) => {
@@ -116,6 +117,25 @@ const markFeePaid = async (req, res) => {
         id: true, admission_no: true,
         admission_fee_paid: true, kuccps_fee_paid: true, student_id_fee_paid: true,
       },
+      include: {
+        application: { select: { email: true } },
+        course: { select: { name: true } },
+        department: { select: { name: true } },
+      },
+    });
+
+    // Send fee payment confirmation email
+    const studentData = {
+      admission_no: student.admission_no,
+      course: updated.course?.name || 'N/A',
+      department: updated.department?.name || 'N/A',
+    };
+    
+    const feeAmount = parseFloat(amount) || (fee_type === 'ADMISSION' ? 1500 : fee_type === 'STUDENT_ID' ? 500 : 500);
+    
+    // Send email asynchronously
+    sendFeeReminder(student.application.email, studentData, fee_type, feeAmount).catch(err => {
+      console.error('Failed to send fee email:', err);
     });
 
     res.json({ message: `${fee_type} fee marked as paid`, student: updated });

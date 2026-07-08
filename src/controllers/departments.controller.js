@@ -69,16 +69,17 @@ const slugify = (text) => {
 
 const createDepartment = async (req, res) => {
   try {
-    const { name, tagline, description, icon, image_url, head_user_id } = req.body;
+    const { name, tagline, description, icon, image_url, head_user_id, shortcode, intake_months } = req.body;
     if (!name) return res.status(400).json({ error: 'Department name is required' });
+    if (!shortcode) return res.status(400).json({ error: 'Department shortcode is required (e.g., ECS, CEE, DSW)' });
 
     const slug = slugify(name);
 
     const existing = await prisma.department.findFirst({
-      where: { OR: [{ name }, { slug }] }
+      where: { OR: [{ name }, { slug }, { shortcode }] }
     });
     if (existing) {
-      return res.status(400).json({ error: 'A department with this name already exists' });
+      return res.status(400).json({ error: 'A department with this name or shortcode already exists' });
     }
 
     const dept = await prisma.department.create({
@@ -90,6 +91,8 @@ const createDepartment = async (req, res) => {
         icon: icon || null,
         image_url: image_url || null,
         head_user_id: head_user_id || null,
+        shortcode: shortcode.toUpperCase(),
+        intake_months: intake_months || 'J,M,S',
       }
     });
 
@@ -103,7 +106,7 @@ const createDepartment = async (req, res) => {
 const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, tagline, description, icon, image_url, head_user_id } = req.body;
+    const { name, tagline, description, icon, image_url, head_user_id, shortcode, intake_months } = req.body;
 
     const existingDept = await prisma.department.findUnique({ where: { id } });
     if (!existingDept) return res.status(404).json({ error: 'Department not found' });
@@ -119,6 +122,16 @@ const updateDepartment = async (req, res) => {
       }
     }
 
+    // Check shortcode uniqueness if being updated
+    if (shortcode && shortcode !== existingDept.shortcode) {
+      const duplicateShortcode = await prisma.department.findFirst({
+        where: { shortcode: shortcode.toUpperCase(), id: { not: id } }
+      });
+      if (duplicateShortcode) {
+        return res.status(400).json({ error: 'A department with this shortcode already exists' });
+      }
+    }
+
     const updated = await prisma.department.update({
       where: { id },
       data: {
@@ -128,6 +141,8 @@ const updateDepartment = async (req, res) => {
         icon: icon !== undefined ? icon : existingDept.icon,
         image_url: image_url !== undefined ? image_url : existingDept.image_url,
         head_user_id: head_user_id !== undefined ? head_user_id : existingDept.head_user_id,
+        shortcode: shortcode ? shortcode.toUpperCase() : existingDept.shortcode,
+        intake_months: intake_months !== undefined ? intake_months : existingDept.intake_months,
       }
     });
 

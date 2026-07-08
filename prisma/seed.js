@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 const departments = [
   {
-    slug: 'agriculture', name: 'Agriculture',
+    slug: 'agriculture', name: 'Agriculture', shortcode: 'AGR',
     tagline: 'Feeding the nation, sustaining the land',
     description: 'Hands-on training in sustainable farming, livestock production, dairy management and aquaculture.',
     icon: '🌾',
@@ -28,7 +28,7 @@ const departments = [
     ],
   },
   {
-    slug: 'mechanical-engineering', name: 'Mechanical Engineering',
+    slug: 'mechanical-engineering', name: 'Mechanical Engineering', shortcode: 'ME',
     tagline: 'Driving Kenya\'s automotive future',
     description: 'Practical skills in motor vehicle, motorcycle and panel beating trades.',
     icon: '🔧',
@@ -42,7 +42,7 @@ const departments = [
     ],
   },
   {
-    slug: 'applied-sciences', name: 'Applied Sciences',
+    slug: 'applied-sciences', name: 'Applied Sciences', shortcode: 'AS',
     tagline: 'Where science meets industry',
     description: 'From food technology and baking to laboratory science.',
     icon: '🧪',
@@ -56,7 +56,7 @@ const departments = [
     ],
   },
   {
-    slug: 'building-civil-engineering', name: 'Building & Civil Engineering',
+    slug: 'building-civil-engineering', name: 'Building & Civil Engineering', shortcode: 'BCE',
     tagline: 'Building tomorrow, today',
     description: 'Master the trades that build a nation — masonry, carpentry, interior design.',
     icon: '🏗️',
@@ -74,7 +74,7 @@ const departments = [
     ],
   },
   {
-    slug: 'social-sciences', name: 'Social Sciences',
+    slug: 'social-sciences', name: 'Social Sciences', shortcode: 'SS',
     tagline: 'Caring careers that change communities',
     description: 'Train as a community health worker, social worker or care professional.',
     icon: '🤝',
@@ -92,7 +92,7 @@ const departments = [
     ],
   },
   {
-    slug: 'business', name: 'Business',
+    slug: 'business', name: 'Business', shortcode: 'BUS',
     tagline: 'Lead. Manage. Succeed.',
     description: 'Future-ready business courses in HR, procurement, project management.',
     icon: '💼',
@@ -105,7 +105,7 @@ const departments = [
     ],
   },
   {
-    slug: 'cosmetology-fashion', name: 'Cosmetology & Fashion',
+    slug: 'cosmetology-fashion', name: 'Cosmetology & Fashion', shortcode: 'CF',
     tagline: 'Crafting beauty, designing identity',
     description: 'Creative training in fashion design, cosmetology and leather technology.',
     icon: '✂️',
@@ -119,7 +119,7 @@ const departments = [
     ],
   },
   {
-    slug: 'electrical-electronics', name: 'Electrical & Electronics Engineering',
+    slug: 'electrical-electronics', name: 'Electrical & Electronics Engineering', shortcode: 'EEE',
     tagline: 'Powering Kenya\'s tomorrow',
     description: 'Build skills that power the nation — solar PV, refrigeration, electronics.',
     icon: '⚡',
@@ -135,7 +135,7 @@ const departments = [
     ],
   },
   {
-    slug: 'computing-informatics', name: 'Computing & Informatics',
+    slug: 'computing-informatics', name: 'Computing & Informatics', shortcode: 'CI',
     tagline: 'Code the future you want',
     description: 'From basic computer operations to ICT technician training.',
     icon: '💻',
