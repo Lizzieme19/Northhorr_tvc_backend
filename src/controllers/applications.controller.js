@@ -191,6 +191,20 @@ const updateApplicationStatus = async (req, res) => {
 
     // If approved — auto-create student account
     if (status === 'APPROVED' && !application.student) {
+      // Check if email is provided
+      if (!application.email) {
+        return res.status(400).json({ 
+          error: 'Cannot approve application without email. Please add email address before approving.' 
+        });
+      }
+
+      // Check if required fields are set
+      if (!application.course_id || !application.department_id) {
+        return res.status(400).json({ 
+          error: 'Cannot approve application without course and department. Please set these fields before approving.' 
+        });
+      }
+
       const bcrypt = require('bcryptjs');
       const email = application.email;
       const tempPassword = `NTVC@${new Date().getFullYear()}`;
@@ -322,11 +336,11 @@ const importKuccps = async (req, res) => {
             other_names: row.other_names || row['Other Names'] || '',
             gender: row.gender || row.Gender || '',
             date_of_birth: new Date(row.dob || row.DOB || '2000-01-01'),
-            email: row.email || row.Email || `${uuidv4()}@placeholder.ntvc.ac.ke`,
+            email: row.email || row.Email || null, // Allow null for students without email
             phone: row.phone || row.Phone || '',
             kcse_index: row.kcse_index || row['KCSE Index'] || null,
             kcse_grade: row.kcse_grade || row['KCSE Grade'] || null,
-            status: 'APPROVED',
+            status: 'PENDING', // Set to PENDING instead of APPROVED
           },
         });
         created.push(app.application_no);
@@ -336,7 +350,7 @@ const importKuccps = async (req, res) => {
     }
 
     res.json({
-      message: `KUCCPS import complete`,
+      message: `KUCCPS import complete. Applications created as PENDING. Admin must set course, department, intake, and level before approving to generate student IDs.`,
       imported: created.length,
       errors: errors.length,
       error_details: errors,
