@@ -22,7 +22,7 @@ const {
  *       200:
  *         description: List of departments
  */
-router.get('/', getDepartments);
+router.get('/',  getDepartments);
 
 /**
  * @swagger
@@ -30,11 +30,13 @@ router.get('/', getDepartments);
  *   get:
  *     summary: Get all courses across all departments
  *     tags: [Departments]
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of all courses
  */
-router.get('/courses/all', getAllCourses);
+router.get('/courses/all',  getAllCourses);
 
 /**
  * @swagger
@@ -42,6 +44,8 @@ router.get('/courses/all', getAllCourses);
  *   get:
  *     summary: Get department by slug
  *     tags: [Departments]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: slug
@@ -52,7 +56,7 @@ router.get('/courses/all', getAllCourses);
  *       200:
  *         description: Department details
  */
-router.get('/:slug', getDepartmentBySlug);
+router.get('/:slug',  getDepartmentBySlug);
 
 /**
  * @swagger
@@ -60,6 +64,8 @@ router.get('/:slug', getDepartmentBySlug);
  *   get:
  *     summary: Get courses for a department
  *     tags: [Departments]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: slug
@@ -70,7 +76,7 @@ router.get('/:slug', getDepartmentBySlug);
  *       200:
  *         description: List of courses for the department
  */
-router.get('/:slug/courses', getCoursesByDepartment);
+router.get('/:slug/courses',  getCoursesByDepartment);
 
 /**
  * @swagger

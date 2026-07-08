@@ -16,6 +16,8 @@ const {
  *   get:
  *     summary: List all designations
  *     tags: [Staff Management]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
@@ -29,7 +31,7 @@ const {
  *       200:
  *         description: List of designations
  */
-router.get('/', getDesignations);
+router.get('/', authenticate, getDesignations);
 
 /**
  * @swagger

@@ -15,8 +15,10 @@ const {
  * @swagger
  * /api/suppliers:
  *   get:
- *     summary: List all suppliers
+ *     summary: List all suppliers (Admin/Procurement only)
  *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: status
@@ -35,7 +37,7 @@ const {
  *       200:
  *         description: List of suppliers
  */
-router.get('/', getSuppliers);
+router.get('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getSuppliers);
 
 /**
  * @swagger
@@ -93,8 +95,10 @@ router.patch('/:id/approve', authenticate, requireRoles('ADMIN', 'PROCUREMENT'),
  * @swagger
  * /api/suppliers/{id}:
  *   get:
- *     summary: Get supplier by ID
+ *     summary: Get supplier by ID (Admin/Procurement only)
  *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -105,7 +109,7 @@ router.patch('/:id/approve', authenticate, requireRoles('ADMIN', 'PROCUREMENT'),
  *       200:
  *         description: Supplier details
  */
-router.get('/:id', getSupplierById);
+router.get('/:id', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getSupplierById);
 
 /**
  * @swagger
