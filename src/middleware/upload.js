@@ -25,7 +25,7 @@ const upload = multer({
 });
 
 /**
- * Upload a buffer to Backblaze B2, fallback to local disk on timeout
+ * Upload a buffer to AWS S3, fallback to local disk on timeout
  */
 const uploadToB2 = async (buffer, originalName, folder = 'uploads') => {
   const ext = path.extname(originalName).toLowerCase();
@@ -47,14 +47,16 @@ const uploadToB2 = async (buffer, originalName, folder = 'uploads') => {
 
     // Timeout after 8 seconds to trigger fallback if network is unreachable
     const uploadPromise = uploader.done();
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('B2 Upload Timeout')), 8000));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('S3 Upload Timeout')), 8000));
     
     await Promise.race([uploadPromise, timeoutPromise]);
 
-    const url = `${process.env.B2_ENDPOINT}/${BUCKET_NAME}/${key}`;
+    // AWS S3 URL format
+    const region = process.env.AWS_REGION || 'us-east-1';
+    const url = `https://${BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
     return { key, url };
   } catch (error) {
-    console.warn(`B2 Upload Failed (${error.message}), falling back to local storage for ${originalName}`);
+    console.warn(`S3 Upload Failed (${error.message}), falling back to local storage for ${originalName}`);
     
     // Fallback to local storage
     const localDir = path.join(__dirname, '../../public', folder);
