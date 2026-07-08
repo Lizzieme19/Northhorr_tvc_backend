@@ -131,10 +131,26 @@ const getStudentById = async (req, res) => {
 // PATCH /api/students/:id
 const updateStudent = async (req, res) => {
   try {
-    const { level, intake, year, status, helb_applied, course_id, department_id, 
-          profile_picture_url, id_copy_front_url, id_copy_back_url, 
+    const { level, intake, year, status, helb_applied, course_id, department_id,
+          profile_picture_url, id_copy_front_url, id_copy_back_url,
           parent_id_copy_front_url, parent_id_copy_back_url } = req.body;
-    const student = await prisma.student.update({
+
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.id },
+      include: { department: true },
+    });
+
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    // Department heads can only update students in their department
+    if (req.user.role === 'DEPT_HEAD') {
+      const dept = await prisma.department.findFirst({ where: { head_user_id: req.user.id } });
+      if (!dept || dept.id !== student.department_id) {
+        return res.status(403).json({ error: 'Access denied. You can only update students in your department.' });
+      }
+    }
+
+    const updated = await prisma.student.update({
       where: { id: req.params.id },
       data: {
         ...(level && { level }),
@@ -152,7 +168,7 @@ const updateStudent = async (req, res) => {
       },
       include: studentIncludes,
     });
-    res.json(student);
+    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -309,4 +325,50 @@ const generateIdCard = async (req, res) => {
   }
 };
 
-module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, uploadPhoto, getStudentStats, uploadMyProfilePicture, generateIdCard };
+// PATCH /api/students/me - Student update their own profile
+const updateMyProfile = async (req, res) => {
+  try {
+    const { phone, address, id_number, emergency_contact_name, emergency_contact_phone,
+          profile_picture_url, id_copy_front_url, id_copy_back_url,
+          parent_id_copy_front_url, parent_id_copy_back_url } = req.body;
+
+    const student = await prisma.student.findUnique({
+      where: { user_id: req.user.id },
+      include: { application: true },
+    });
+
+    if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    const updated = await prisma.student.update({
+      where: { user_id: req.user.id },
+      data: {
+        ...(profile_picture_url && { profile_picture_url }),
+        ...(id_copy_front_url !== undefined && { id_copy_front_url }),
+        ...(id_copy_back_url !== undefined && { id_copy_back_url }),
+        ...(parent_id_copy_front_url !== undefined && { parent_id_copy_front_url }),
+        ...(parent_id_copy_back_url !== undefined && { parent_id_copy_back_url }),
+      },
+      include: studentIncludes,
+    });
+
+    if (student.application) {
+      await prisma.application.update({
+        where: { id: student.application.id },
+        data: {
+          ...(phone && { phone }),
+          ...(address && { address }),
+          ...(id_number && { id_number }),
+          ...(emergency_contact_name && { emergency_contact_name }),
+          ...(emergency_contact_phone && { emergency_contact_phone }),
+        },
+      });
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error('Profile update error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, getStudentStats, uploadMyProfilePicture, generateIdCard };

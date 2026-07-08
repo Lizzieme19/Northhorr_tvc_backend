@@ -9,6 +9,7 @@ const {
   getStudentById,
   getMyProfile,
   updateStudent,
+  updateMyProfile,
   uploadPhoto,
   getStudentStats,
   uploadMyProfilePicture,
@@ -68,6 +69,47 @@ router.get('/me', authenticate, requireRoles('STUDENT'), requirePasswordChange, 
 
 /**
  * @swagger
+ * /api/students/me:
+ *   patch:
+ *     summary: Update current student profile
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               phone:
+ *                 type: string
+ *               address:
+ *                 type: string
+ *               id_number:
+ *                 type: string
+ *               emergency_contact_name:
+ *                 type: string
+ *               emergency_contact_phone:
+ *                 type: string
+ *               profile_picture_url:
+ *                 type: string
+ *               id_copy_front_url:
+ *                 type: string
+ *               id_copy_back_url:
+ *                 type: string
+ *               parent_id_copy_front_url:
+ *                 type: string
+ *               parent_id_copy_back_url:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ */
+router.patch('/me', authenticate, requireRoles('STUDENT'), requirePasswordChange, updateMyProfile);
+
+/**
+ * @swagger
  * /api/students/me/profile-picture:
  *   patch:
  *     summary: Upload profile picture
@@ -114,7 +156,7 @@ router.get('/:id', authenticate, getStudentById);
  * @swagger
  * /api/students/{id}:
  *   patch:
- *     summary: Update student (Admin only)
+ *     summary: Update student (Admin or Dept Head only)
  *     tags: [Students]
  *     security:
  *       - bearerAuth: []
@@ -130,11 +172,39 @@ router.get('/:id', authenticate, getStudentById);
  *         application/json:
  *           schema:
  *             type: object
+ *             properties:
+ *               level:
+ *                 type: string
+ *               intake:
+ *                 type: string
+ *               year:
+ *                 type: integer
+ *               status:
+ *                 type: string
+ *                 enum: [ACTIVE, GRADUATED, WITHDRAWN, SUSPENDED]
+ *               helb_applied:
+ *                 type: boolean
+ *               course_id:
+ *                 type: string
+ *               department_id:
+ *                 type: string
+ *               profile_picture_url:
+ *                 type: string
+ *               id_copy_front_url:
+ *                 type: string
+ *               id_copy_back_url:
+ *                 type: string
+ *               parent_id_copy_front_url:
+ *                 type: string
+ *               parent_id_copy_back_url:
+ *                 type: string
  *     responses:
  *       200:
  *         description: Student updated
+ *       403:
+ *         description: Access denied (Dept Head can only update students in their department)
  */
-router.patch('/:id', authenticate, requireRoles('ADMIN'), updateStudent);
+router.patch('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), updateStudent);
 
 /**
  * @swagger
