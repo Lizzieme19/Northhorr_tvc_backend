@@ -163,7 +163,7 @@ router.get('/me', authenticate, getMe);
  *                 type: string
  *               role:
  *                 type: string
- *                 enum: [ADMIN, DEPT_HEAD, FINANCE]
+ *                 enum: [ADMIN, DEPT_HEAD, FINANCE, STAFF, PROCUREMENT, HR]
  *               department_id:
  *                 type: string
  *     responses:
