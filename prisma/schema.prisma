@@ -206,6 +206,20 @@ model Application {
   parent_phone          String?
   parent_email          String?
 
+  // Father Information
+  father_present        Boolean  @default(true)
+  father_name           String?
+  father_phone          String?
+  father_email          String?
+  father_occupation     String?
+
+  // Mother Information
+  mother_present        Boolean  @default(true)
+  mother_name           String?
+  mother_phone          String?
+  mother_email          String?
+  mother_occupation     String?
+
   // Medical
   medical_conditions    String?
   allergies             String?

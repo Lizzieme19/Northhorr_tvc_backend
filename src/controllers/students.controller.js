@@ -12,6 +12,10 @@ const studentIncludes = {
       id: true, application_no: true, type: true, surname: true, other_names: true,
       gender: true, date_of_birth: true, phone: true, address: true,
       kcpe_marks: true, kcse_grade: true, status: true,
+      parent_names: true, parent_relationship: true, parent_phone: true, parent_email: true,
+      father_present: true, father_name: true, father_phone: true, father_email: true, father_occupation: true,
+      mother_present: true, mother_name: true, mother_phone: true, mother_email: true, mother_occupation: true,
+      emergency_person: true, emergency_phone: true,
     },
   },
   admission_letter: { select: { id: true, generated_at: true, letter_url: true } },
@@ -133,11 +137,16 @@ const updateStudent = async (req, res) => {
   try {
     const { level, intake, year, status, helb_applied, course_id, department_id,
           profile_picture_url, id_copy_front_url, id_copy_back_url,
-          parent_id_copy_front_url, parent_id_copy_back_url } = req.body;
+          parent_id_copy_front_url, parent_id_copy_back_url,
+          // Parent information
+          father_present, father_name, father_phone, father_email, father_occupation,
+          mother_present, mother_name, mother_phone, mother_email, mother_occupation,
+          parent_names, parent_relationship, parent_phone, parent_email,
+          emergency_person, emergency_phone } = req.body;
 
     const student = await prisma.student.findUnique({
       where: { id: req.params.id },
-      include: { department: true },
+      include: { department: true, application: true },
     });
 
     if (!student) return res.status(404).json({ error: 'Student not found' });
@@ -168,8 +177,35 @@ const updateStudent = async (req, res) => {
       },
       include: studentIncludes,
     });
+
+    // Update application fields if provided
+    if (student.application) {
+      await prisma.application.update({
+        where: { id: student.application.id },
+        data: {
+          ...(father_present !== undefined && { father_present }),
+          ...(father_name !== undefined && { father_name }),
+          ...(father_phone !== undefined && { father_phone }),
+          ...(father_email !== undefined && { father_email }),
+          ...(father_occupation !== undefined && { father_occupation }),
+          ...(mother_present !== undefined && { mother_present }),
+          ...(mother_name !== undefined && { mother_name }),
+          ...(mother_phone !== undefined && { mother_phone }),
+          ...(mother_email !== undefined && { mother_email }),
+          ...(mother_occupation !== undefined && { mother_occupation }),
+          ...(parent_names !== undefined && { parent_names }),
+          ...(parent_relationship !== undefined && { parent_relationship }),
+          ...(parent_phone !== undefined && { parent_phone }),
+          ...(parent_email !== undefined && { parent_email }),
+          ...(emergency_person !== undefined && { emergency_person }),
+          ...(emergency_phone !== undefined && { emergency_phone }),
+        },
+      });
+    }
+
     res.json(updated);
   } catch (err) {
+    console.error('Update student error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
