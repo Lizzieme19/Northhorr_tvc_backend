@@ -22,7 +22,7 @@ const options = {
         description: 'Production server (Render)',
       },
       {
-        url: process.env.API_URL || 'https://api.ntvc.ac.ke',
+        url: process.env.API_URL || 'https://api.northhorrtvc.ac.ke',
         description: 'Custom production server',
       },
     ],
