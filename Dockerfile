@@ -1,8 +1,14 @@
-# Use Node.js 18 LTS
-FROM node:18-alpine
+# Use Node.js 18 LTS with Debian (not Alpine) for better Prisma compatibility
+FROM node:18-bullseye-slim
 
 # Set working directory
 WORKDIR /app
+
+# Install system dependencies for Prisma
+RUN apt-get update && apt-get install -y \
+    openssl \
+    libssl1.1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY package*.json ./
