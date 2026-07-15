@@ -126,6 +126,7 @@ model User {
   approved_leaves   LeaveRequest[] @relation("ApprovedBy")
   created_requisitions PurchaseRequisition[] @relation("CreatedBy")
   approved_requisitions PurchaseRequisition[] @relation("ApprovedBy")
+  uploaded_resources Resource[]
   approved_lpos      LPO[] @relation("ApprovedBy")
 }
 
@@ -747,6 +748,24 @@ model Budget {
 
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
+}
+
+model Resource {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  category    String   // Prospectus, Forms, Timetables, Policies
+  file_url    String   // S3 URL
+  file_key    String   // S3 key for deletion
+  file_type   String   // PDF, DOCX, ZIP, etc.
+  file_size   String?  // Human readable size
+  uploaded_by String   // Admin user ID
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  uploader    User     @relation(fields: [uploaded_by], references: [id])
+}
 
   department      Department @relation(fields: [department_id], references: [id])
 
