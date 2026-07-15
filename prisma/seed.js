@@ -207,8 +207,8 @@ async function main() {
 
     for (const course of courses) {
       await prisma.course.upsert({
-        where: { id: `${createdDept.id}-${course.name}`.slice(0, 36) },
-        update: { name: course.name, levels: course.levels, shortcode: course.shortcode },
+        where: { shortcode: course.shortcode },
+        update: { name: course.name, levels: course.levels },
         create: {
           name: course.name,
           levels: course.levels,
