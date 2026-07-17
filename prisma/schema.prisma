@@ -45,7 +45,7 @@ enum Intake {
   SEPTEMBER
 }
 
-enum FeeType {
+enum FeeTypeEnum {
   ADMISSION
   KUCCPS
   STUDENT_ID
@@ -740,21 +740,6 @@ model MaintenanceRecord {
   created_at      DateTime @default(now())
 
   asset           Asset    @relation(fields: [asset_id], references: [id])
-}
-
-model Budget {
-  id              String   @id @default(uuid())
-  department_id   String
-  fiscal_year     Int
-  category        String?
-  allocated_amount Float
-  spent_amount    Float    @default(0)
-  remaining_amount Float
-  status          String   @default("ACTIVE") // ACTIVE, CLOSED, FROZEN
-  notes           String?
-
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
 }
 
 model Resource {
