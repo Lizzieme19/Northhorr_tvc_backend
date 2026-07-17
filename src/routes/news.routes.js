@@ -8,7 +8,8 @@ const {
   updateNews,
   deleteNews
 } = require('../controllers/news.controller');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
+const { requireRoles } = require('../middleware/roles');
 
 // Configure multer for image upload
 const upload = multer({
@@ -113,7 +114,7 @@ router.get('/:id', getNewsById);
  *       403:
  *         description: Forbidden - Admin only
  */
-router.post('/', authMiddleware, adminMiddleware, upload.single('image'), createNews);
+router.post('/', authenticate, requireRoles('ADMIN'), upload.single('image'), createNews);
 
 /**
  * @swagger
@@ -161,7 +162,7 @@ router.post('/', authMiddleware, adminMiddleware, upload.single('image'), create
  *       403:
  *         description: Forbidden - Admin only
  */
-router.put('/:id', authMiddleware, adminMiddleware, upload.single('image'), updateNews);
+router.put('/:id', authenticate, requireRoles('ADMIN'), upload.single('image'), updateNews);
 
 /**
  * @swagger
@@ -187,6 +188,6 @@ router.put('/:id', authMiddleware, adminMiddleware, upload.single('image'), upda
  *       403:
  *         description: Forbidden - Admin only
  */
-router.delete('/:id', authMiddleware, adminMiddleware, deleteNews);
+router.delete('/:id', authenticate, requireRoles('ADMIN'), deleteNews);
 
 module.exports = router;
