@@ -795,7 +795,7 @@ model FeeType {
   updated_at  DateTime @updatedAt
 
   course      Course?  @relation(fields: [course_id], references: [id])
-  fee_records FeeRecord[]
+  fee_records FeeRecord[] @relation("FeeRecordFeeType")
 }
 
 model Term {
@@ -809,7 +809,7 @@ model Term {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  fee_records FeeRecord[]
+  fee_records FeeRecord[] @relation("FeeRecordTerm")
   student_balances StudentBalance[]
 }
 
