@@ -1,5 +1,7 @@
 const prisma = require('../config/db');
-const { uploadToS3, deleteFromS3 } = require('../services/s3Service');
+const { uploadToS3 } = require('../middleware/upload');
+const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { s3Client, BUCKET_NAME } = require('../config/s3');
 
 // GET /api/news - Get all news (public)
 const getAllNews = async (req, res) => {
@@ -71,9 +73,9 @@ const createNews = async (req, res) => {
     let image_key = null;
 
     if (imageFile) {
-      const uploadResult = await uploadToS3(imageFile, 'news');
-      image_url = uploadResult.Location;
-      image_key = uploadResult.Key;
+      const uploadResult = await uploadToS3(imageFile.buffer, imageFile.originalname, 'news');
+      image_url = uploadResult.url;
+      image_key = uploadResult.key;
     }
 
     const news = await prisma.news.create({
@@ -124,12 +126,19 @@ const updateNews = async (req, res) => {
     if (imageFile) {
       // Delete old image if exists
       if (existingNews.image_key) {
-        await deleteFromS3(existingNews.image_key);
+        try {
+          await s3Client.send(new DeleteObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: existingNews.image_key,
+          }));
+        } catch (err) {
+          console.error('Failed to delete file from S3:', err);
+        }
       }
       
-      const uploadResult = await uploadToS3(imageFile, 'news');
-      image_url = uploadResult.Location;
-      image_key = uploadResult.Key;
+      const uploadResult = await uploadToS3(imageFile.buffer, imageFile.originalname, 'news');
+      image_url = uploadResult.url;
+      image_key = uploadResult.key;
     }
 
     const updateData = {
@@ -182,7 +191,14 @@ const deleteNews = async (req, res) => {
 
     // Delete image from S3 if exists
     if (news.image_key) {
-      await deleteFromS3(news.image_key);
+      try {
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: news.image_key,
+        }));
+      } catch (err) {
+        console.error('Failed to delete file from S3:', err);
+      }
     }
 
     await prisma.news.delete({

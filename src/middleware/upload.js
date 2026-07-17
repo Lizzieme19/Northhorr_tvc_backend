@@ -1,5 +1,5 @@
 const multer = require('multer');
-const { s3Client, BUCKET_NAME } = require('../config/b2');
+const { s3Client, BUCKET_NAME } = require('../config/s3');
 const { Upload } = require('@aws-sdk/lib-storage');
 const path = require('path');
 const fs = require('fs');
@@ -27,7 +27,7 @@ const upload = multer({
 /**
  * Upload a buffer to AWS S3, fallback to local disk on timeout
  */
-const uploadToB2 = async (buffer, originalName, folder = 'uploads') => {
+const uploadToS3 = async (buffer, originalName, folder = 'uploads') => {
   const ext = path.extname(originalName).toLowerCase();
   const key = `${folder}/${uuidv4()}${ext}`;
   const contentType = ext === '.pdf' ? 'application/pdf'
@@ -76,10 +76,10 @@ const uploadDocuments = async (files, folder = 'documents') => {
   for (const [fieldName, fileArray] of Object.entries(files)) {
     const file = Array.isArray(fileArray) ? fileArray[0] : fileArray;
     if (file && file.buffer) {
-      results[fieldName] = await uploadToB2(file.buffer, file.originalname, folder);
+      results[fieldName] = await uploadToS3(file.buffer, file.originalname, folder);
     }
   }
   return results;
 };
 
-module.exports = { upload, uploadToB2, uploadDocuments };
+module.exports = { upload, uploadToS3, uploadDocuments };

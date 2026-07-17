@@ -241,3 +241,6 @@ After completing these steps, you will have:
 - ✅ CI/CD pipeline active
 
 Total cost: ~$6/month
+
+Stop containers - docker-compose down (keeps PostgreSQL data intact)
+Rebuild and start - docker-compose up -d --build rebuilds the backend image with

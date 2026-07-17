@@ -1,7 +1,7 @@
 const PDFDocument = require('pdfkit');
-const { uploadToB2 } = require('../middleware/upload');
+const { uploadToS3 } = require('../middleware/upload');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
-const { s3Client, BUCKET_NAME } = require('../config/b2');
+const { s3Client, BUCKET_NAME } = require('../config/s3');
 const prisma = require('../config/db');
 
 // POST /api/admissions/generate/:student_id
@@ -31,7 +31,7 @@ const generateLetter = async (req, res) => {
 
     // Upload to B2
     const fileName = `${student.admission_no.replace(/\//g, '_')}_admission_letter.pdf`;
-    const { url } = await uploadToB2(pdfBuffer, fileName, 'letters');
+    const { url } = await uploadToS3(pdfBuffer, fileName, 'letters');
 
     // Save record
     const letter = await prisma.admissionLetter.create({

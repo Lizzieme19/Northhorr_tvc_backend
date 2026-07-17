@@ -1,5 +1,5 @@
 const prisma = require('../config/db');
-const { uploadToB2 } = require('../middleware/upload');
+const { uploadToS3 } = require('../middleware/upload');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const PDFDocument = require('pdfkit');
 
@@ -226,22 +226,22 @@ const uploadStudentDocuments = async (req, res) => {
     const updateData = {};
 
     if (id_copy_front) {
-      const { url } = await uploadToB2(id_copy_front[0].buffer, id_copy_front[0].originalname, 'documents');
+      const { url } = await uploadToS3(id_copy_front[0].buffer, id_copy_front[0].originalname, 'documents');
       updateData.id_copy_front_url = url;
     }
 
     if (id_copy_back) {
-      const { url } = await uploadToB2(id_copy_back[0].buffer, id_copy_back[0].originalname, 'documents');
+      const { url } = await uploadToS3(id_copy_back[0].buffer, id_copy_back[0].originalname, 'documents');
       updateData.id_copy_back_url = url;
     }
 
     if (parent_id_copy_front) {
-      const { url } = await uploadToB2(parent_id_copy_front[0].buffer, parent_id_copy_front[0].originalname, 'documents');
+      const { url } = await uploadToS3(parent_id_copy_front[0].buffer, parent_id_copy_front[0].originalname, 'documents');
       updateData.parent_id_copy_front_url = url;
     }
 
     if (parent_id_copy_back) {
-      const { url } = await uploadToB2(parent_id_copy_back[0].buffer, parent_id_copy_back[0].originalname, 'documents');
+      const { url } = await uploadToS3(parent_id_copy_back[0].buffer, parent_id_copy_back[0].originalname, 'documents');
       updateData.parent_id_copy_back_url = url;
     }
 
@@ -282,7 +282,7 @@ const uploadPhoto = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { url } = await uploadToB2(req.file.buffer, req.file.originalname, 'photos');
+    const { url } = await uploadToS3(req.file.buffer, req.file.originalname, 'photos');
 
     const updated = await prisma.student.update({
       where: { id: req.params.id },
@@ -305,7 +305,7 @@ const uploadMyProfilePicture = async (req, res) => {
     const student = await prisma.student.findUnique({ where: { user_id: req.user.id } });
     if (!student) return res.status(404).json({ error: 'Student profile not found' });
 
-    const { url } = await uploadToB2(req.file.buffer, req.file.originalname, 'profile-pictures');
+    const { url } = await uploadToS3(req.file.buffer, req.file.originalname, 'profile-pictures');
 
     const updated = await prisma.student.update({
       where: { user_id: req.user.id },

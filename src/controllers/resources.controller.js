@@ -1,7 +1,7 @@
 const prisma = require('../config/db');
-const { uploadToB2 } = require('../middleware/upload');
+const { uploadToS3 } = require('../middleware/upload');
 const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
-const { s3Client, BUCKET_NAME } = require('../config/b2');
+const { s3Client, BUCKET_NAME } = require('../config/s3');
 
 // GET /api/resources - List all resources (public)
 const getResources = async (req, res) => {
@@ -62,7 +62,7 @@ const createResource = async (req, res) => {
     }
 
     // Upload file to S3
-    const uploadResult = await uploadToB2(file.buffer, file.originalname, 'resources');
+    const uploadResult = await uploadToS3(file.buffer, file.originalname, 'resources');
 
     // Get file type from original name
     const fileExt = file.originalname.split('.').pop().toUpperCase();
