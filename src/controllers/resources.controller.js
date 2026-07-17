@@ -1,7 +1,8 @@
 const prisma = require('../config/db');
 const { uploadToS3 } = require('../middleware/upload');
-const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { DeleteObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { s3Client, BUCKET_NAME } = require('../config/s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 // GET /api/resources - List all resources (public)
 const getResources = async (req, res) => {
@@ -129,9 +130,27 @@ const deleteResource = async (req, res) => {
   }
 };
 
+// GET /api/resources/:id/download - Download resource (public)
+const downloadResource = async (req, res) => {
+  try {
+    const resource = await prisma.resource.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!resource) return res.status(404).json({ error: 'Resource not found' });
+
+    // Redirect to the S3 URL for direct download
+    res.redirect(resource.file_url);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 module.exports = {
   getResources,
   getResourceById,
   createResource,
   deleteResource,
+  downloadResource,
 };

@@ -8,6 +8,7 @@ const {
   getResourceById,
   createResource,
   deleteResource,
+  downloadResource,
 } = require('../controllers/resources.controller');
 
 /**
@@ -48,6 +49,26 @@ router.get('/', getResources);
  *         description: Resource not found
  */
 router.get('/:id', getResourceById);
+
+/**
+ * @swagger
+ * /api/resources/{id}/download:
+ *   get:
+ *     summary: Download resource
+ *     tags: [Resources]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       302:
+ *         description: Redirect to S3 file URL
+ *       404:
+ *         description: Resource not found
+ */
+router.get('/:id/download', downloadResource);
 
 /**
  * @swagger
