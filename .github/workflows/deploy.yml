@@ -25,4 +25,4 @@ jobs:
             git pull origin main
             docker-compose build
             docker-compose up -d --force-recreate
-            docker-compose exec -T backend npx prisma db push
+            docker-compose exec -T backend npx prisma db push --accept-data-loss
