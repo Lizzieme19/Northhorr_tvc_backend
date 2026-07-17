@@ -293,6 +293,9 @@ model Student {
   student_id_fee_paid Boolean @default(false)
   tuition_fee_paid    Boolean @default(false) // Manual tuition fee payment indication
 
+  // Current term enrollment
+  current_term_id String? // Active term for the student
+
   status          StudentStatus @default(ACTIVE)
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
@@ -304,6 +307,7 @@ model Student {
   admission_letter AdmissionLetter?
   fee_records     FeeRecord[]
   student_balances StudentBalance[]
+  current_term    Term?         @relation("StudentCurrentTerm", fields: [current_term_id], references: [id])
 }
 
 model AdmissionLetter {
@@ -811,6 +815,7 @@ model Term {
 
   fee_records FeeRecord[] @relation("FeeRecordTerm")
   student_balances StudentBalance[]
+  students Student[] @relation("StudentCurrentTerm")
 }
 
 model StudentBalance {
