@@ -1,6 +1,13 @@
 const prisma = require('../config/db');
 const { sendFeeReminder } = require('../services/emailService');
 
+// Generate unique reference code for fee payments
+const generateReferenceCode = () => {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `FEE-${timestamp}-${random}`;
+};
+
 // GET /api/finance/students
 const getFinanceStudents = async (req, res) => {
   try {
@@ -108,6 +115,7 @@ const markFeePaid = async (req, res) => {
         fee_type_id,
         term_id: term_id || null,
         amount: parseFloat(amount) || feeType.amount,
+        reference_code: generateReferenceCode(),
         received_by: req.user.id,
       },
     });
