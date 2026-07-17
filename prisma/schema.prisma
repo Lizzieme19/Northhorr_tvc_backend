@@ -325,7 +325,7 @@ model AdmissionLetter {
 model FeeRecord {
   id          String   @id @default(uuid())
   student_id  String
-  fee_type_id String  // Reference to FeeType
+  fee_type_id String?  // Reference to FeeType (optional for backward compatibility)
   term_id     String?  // Link to term for balance calculation
   amount      Float
   paid_at     DateTime @default(now())
@@ -334,7 +334,7 @@ model FeeRecord {
 
   student     Student  @relation(fields: [student_id], references: [id])
   receiver    User     @relation("ReceivedBy", fields: [received_by], references: [id])
-  feeType     FeeType  @relation("FeeRecordFeeType", fields: [fee_type_id], references: [id])
+  feeType     FeeType? @relation("FeeRecordFeeType", fields: [fee_type_id], references: [id])
   term        Term?    @relation("FeeRecordTerm", fields: [term_id], references: [id])
 }
 
