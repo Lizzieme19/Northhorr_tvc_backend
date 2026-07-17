@@ -251,6 +251,10 @@ router.post('/:id/documents', authenticate, requireRoles('ADMIN'), upload.fields
   { name: 'id_copy_back', maxCount: 1 },
   { name: 'parent_id_copy_front', maxCount: 1 },
   { name: 'parent_id_copy_back', maxCount: 1 },
+  { name: 'medical_report', maxCount: 1 },
+  { name: 'kcse_certificate', maxCount: 1 },
+  { name: 'birth_certificate', maxCount: 1 },
+  { name: 'other_documents', maxCount: 1 },
 ]), uploadStudentDocuments);
 
 /**

@@ -210,10 +210,19 @@ const updateStudent = async (req, res) => {
   }
 };
 
-// POST /api/students/:id/documents - Upload student ID copies (Admin only)
+// POST /api/students/:id/documents - Upload student documents (Admin only)
 const uploadStudentDocuments = async (req, res) => {
   try {
-    const { id_copy_front, id_copy_back, parent_id_copy_front, parent_id_copy_back } = req.files || {};
+    const { 
+      id_copy_front, 
+      id_copy_back, 
+      parent_id_copy_front, 
+      parent_id_copy_back,
+      medical_report,
+      kcse_certificate,
+      birth_certificate,
+      other_documents
+    } = req.files || {};
     
     // Students can only upload their own documents, admins can upload any
     const student = await prisma.student.findUnique({ where: { id: req.params.id } });
@@ -243,6 +252,26 @@ const uploadStudentDocuments = async (req, res) => {
     if (parent_id_copy_back) {
       const { url } = await uploadToS3(parent_id_copy_back[0].buffer, parent_id_copy_back[0].originalname, 'documents');
       updateData.parent_id_copy_back_url = url;
+    }
+
+    if (medical_report) {
+      const { url } = await uploadToS3(medical_report[0].buffer, medical_report[0].originalname, 'documents');
+      updateData.medical_report_url = url;
+    }
+
+    if (kcse_certificate) {
+      const { url } = await uploadToS3(kcse_certificate[0].buffer, kcse_certificate[0].originalname, 'documents');
+      updateData.kcse_certificate_url = url;
+    }
+
+    if (birth_certificate) {
+      const { url } = await uploadToS3(birth_certificate[0].buffer, birth_certificate[0].originalname, 'documents');
+      updateData.birth_certificate_url = url;
+    }
+
+    if (other_documents) {
+      const { url } = await uploadToS3(other_documents[0].buffer, other_documents[0].originalname, 'documents');
+      updateData.other_documents_url = url;
     }
 
     if (Object.keys(updateData).length === 0) {

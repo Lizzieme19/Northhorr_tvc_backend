@@ -283,6 +283,12 @@ model Student {
   parent_id_copy_front_url String?
   parent_id_copy_back_url  String?
 
+  // Additional documents
+  medical_report_url      String?
+  kcse_certificate_url    String?
+  birth_certificate_url   String?
+  other_documents_url     String? // For any other miscellaneous documents
+
   // Admission month shortcode (e.g., 'J', 'M', 'S')
   admission_month_shortcode String?
 
