@@ -25,6 +25,7 @@ const assetsRoutes = require('./routes/assets.routes');
 const budgetsRoutes = require('./routes/budgets.routes');
 const auditRoutes = require('./routes/audit.routes');
 const resourcesRoutes = require('./routes/resources.routes');
+const newsRoutes = require('./routes/news.routes');
 
 const app = express();
 
@@ -88,6 +89,7 @@ app.use('/api/assets', assetsRoutes);
 app.use('/api/budgets', budgetsRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/resources', resourcesRoutes);
+app.use('/api/news', newsRoutes);
 
 // 404 handler
 app.use((req, res) => {

@@ -127,6 +127,7 @@ model User {
   created_requisitions PurchaseRequisition[] @relation("CreatedBy")
   approved_requisitions PurchaseRequisition[] @relation("ApprovedBy")
   uploaded_resources Resource[]
+  uploaded_news     News[]
   approved_lpos      LPO[] @relation("ApprovedBy")
 }
 
@@ -766,6 +767,39 @@ model Resource {
 
   uploader    User     @relation(fields: [uploaded_by], references: [id])
 }
+
+model News {
+  id          String   @id @default(uuid())
+  title       String
+  excerpt     String
+  content     String?  // Full news content
+  category    String   // News, Event, Announcement
+  image_url   String?  // S3 URL for news image
+  image_key   String?  // S3 key for deletion
+  is_featured Boolean  @default(false)
+  is_published Boolean @default(false)
+  published_at DateTime?
+  uploaded_by String   // Admin user ID
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  uploader    User     @relation(fields: [uploaded_by], references: [id])
+}
+
+model Budget {
+  id              String   @id @default(uuid())
+  department_id   String
+  fiscal_year     Int
+  category        String?
+  allocated_amount Float
+  spent_amount    Float    @default(0)
+  remaining_amount Float
+  status          String   @default("ACTIVE") // ACTIVE, CLOSED, FROZEN
+  notes           String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
 
   department      Department @relation(fields: [department_id], references: [id])
 
