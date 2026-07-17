@@ -325,7 +325,6 @@ model AdmissionLetter {
 model FeeRecord {
   id          String   @id @default(uuid())
   student_id  String
-  fee_type    String?  // Legacy fee type string (kept for backward compatibility)
   fee_type_id String?  // Reference to FeeType (optional for backward compatibility)
   term_id     String?  // Link to term for balance calculation
   amount      Float
