@@ -2,6 +2,12 @@ const nodemailer = require('nodemailer');
 
 // Create transporter using environment variables
 const createTransporter = () => {
+  // Check if email configuration is available
+  if (!process.env.EMAIL_HOST || !process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    console.warn('Email configuration missing. Emails will not be sent.');
+    return null;
+  }
+  
   return nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
     port: process.env.EMAIL_PORT || 587,
@@ -22,6 +28,12 @@ const createTransporter = () => {
 const sendAdmissionConfirmation = async (to, studentData, tempPassword) => {
   try {
     const transporter = createTransporter();
+    
+    // If transporter is null (email config missing), log and return success to not block the flow
+    if (!transporter) {
+      console.warn('Email configuration missing. Admission confirmation email not sent.');
+      return true;
+    }
     
     const mailOptions = {
       from: `"North Horr TVC" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
@@ -110,6 +122,12 @@ const sendFeeReminder = async (to, studentData, feeType, amount) => {
   try {
     const transporter = createTransporter();
     
+    // If transporter is null (email config missing), log and return success to not block the flow
+    if (!transporter) {
+      console.warn('Email configuration missing. Fee reminder email not sent.');
+      return true;
+    }
+    
     const feeTypeLabels = {
       ADMISSION: 'Admission Fee',
       KUCCPS: 'KUCCPS Fee',
@@ -194,6 +212,12 @@ const sendFeeReminder = async (to, studentData, feeType, amount) => {
 const sendNotification = async (to, subject, htmlContent) => {
   try {
     const transporter = createTransporter();
+    
+    // If transporter is null (email config missing), log and return success to not block the flow
+    if (!transporter) {
+      console.warn('Email configuration missing. Notification email not sent.');
+      return true;
+    }
     
     const mailOptions = {
       from: `"North Horr TVC" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
