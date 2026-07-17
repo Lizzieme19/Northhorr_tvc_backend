@@ -173,6 +173,7 @@ model Course {
   department    Department    @relation(fields: [department_id], references: [id])
   applications  Application[]
   students      Student[]
+  feeTypes      FeeType[]
 }
 
 model Application {
@@ -290,6 +291,7 @@ model Student {
   admission_fee_paid  Boolean @default(false)
   kuccps_fee_paid     Boolean @default(false)
   student_id_fee_paid Boolean @default(false)
+  tuition_fee_paid    Boolean @default(false) // Manual tuition fee payment indication
 
   status          StudentStatus @default(ACTIVE)
   created_at      DateTime      @default(now())
@@ -301,6 +303,7 @@ model Student {
   department      Department    @relation(fields: [department_id], references: [id])
   admission_letter AdmissionLetter?
   fee_records     FeeRecord[]
+  student_balances StudentBalance[]
 }
 
 model AdmissionLetter {
@@ -318,7 +321,8 @@ model AdmissionLetter {
 model FeeRecord {
   id          String   @id @default(uuid())
   student_id  String
-  fee_type    FeeType
+  fee_type_id String  // Reference to FeeType
+  term_id     String?  // Link to term for balance calculation
   amount      Float
   paid_at     DateTime @default(now())
   received_by String
@@ -326,6 +330,8 @@ model FeeRecord {
 
   student     Student  @relation(fields: [student_id], references: [id])
   receiver    User     @relation("ReceivedBy", fields: [received_by], references: [id])
+  feeType     FeeType  @relation("FeeRecordFeeType", fields: [fee_type_id], references: [id])
+  term        Term?    @relation("FeeRecordTerm", fields: [term_id], references: [id])
 }
 
 model IntakeMonth {
@@ -785,6 +791,59 @@ model News {
   updated_at  DateTime @updatedAt
 
   uploader    User     @relation(fields: [uploaded_by], references: [id])
+}
+
+model FeeType {
+  id          String   @id @default(uuid())
+  name        String   // e.g., "Admission Fee", "Tuition Fee", "Library Fee"
+  code        String   @unique // e.g., "ADMISSION", "TUITION", "LIBRARY"
+  description String?
+  amount      Float    // Default amount
+  is_active   Boolean  @default(true) // Enable/disable fee type
+  is_required Boolean  @default(false) // Mandatory fee
+  applies_to  String   // ALL, SPECIFIC_COURSE, SPECIFIC_LEVEL
+  course_id   String?  // If applies to specific course
+  level       String?  // If applies to specific level (e.g., "Certificate", "Diploma")
+  term_based  Boolean  @default(false) // Whether fee is per-term (like tuition)
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  course      Course?  @relation(fields: [course_id], references: [id])
+  fee_records FeeRecord[]
+}
+
+model Term {
+  id          String   @id @default(uuid())
+  name        String   // e.g., "Term 1 2024", "Term 2 2024"
+  start_date  DateTime
+  end_date    DateTime
+  academic_year String // e.g., "2024/2025"
+  is_active   Boolean  @default(true)
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  fee_records FeeRecord[]
+  student_balances StudentBalance[]
+}
+
+model StudentBalance {
+  id          String   @id @default(uuid())
+  student_id  String
+  term_id     String
+  total_fees  Float    @default(0)
+  amount_paid Float    @default(0)
+  balance     Float    @default(0)
+  status      String   @default("PENDING") // PENDING, PARTIAL, PAID, OVERDUE
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  student     Student  @relation(fields: [student_id], references: [id])
+  term        Term     @relation(fields: [term_id], references: [id])
+
+  @@unique([student_id, term_id])
 }
 
 model Budget {

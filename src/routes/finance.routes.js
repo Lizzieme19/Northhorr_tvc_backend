@@ -7,6 +7,7 @@ const {
   getFinanceStudents,
   markFeePaid,
   getFeeSummary,
+  getStudentBalance,
 } = require('../controllers/finance.controller');
 
 /**
@@ -72,18 +73,40 @@ router.get('/summary', authenticate, requireRoles('ADMIN', 'FINANCE'), getFeeSum
  *           schema:
  *             type: object
  *             properties:
+ *               fee_type_id:
+ *                 type: string
+ *               term_id:
+ *                 type: string
  *               amount:
  *                 type: number
- *               status:
- *                 type: string
- *                 enum: [PAID, PARTIAL]
- *               payment_date:
- *                 type: string
- *                 format: date
  *     responses:
  *       200:
  *         description: Fee payment recorded
  */
 router.patch('/students/:id/fees', authenticate, requireRoles('ADMIN', 'FINANCE'), markFeePaid);
+
+/**
+ * @swagger
+ * /api/finance/students/{id}/balance:
+ *   get:
+ *     summary: Get student fee balance (Admin/Finance only)
+ *     tags: [Finance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: term_id
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Student balance information
+ */
+router.get('/students/:id/balance', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentBalance);
 
 module.exports = router;
