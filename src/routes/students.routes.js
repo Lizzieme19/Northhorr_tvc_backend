@@ -11,6 +11,7 @@ const {
   updateStudent,
   updateMyProfile,
   uploadPhoto,
+  uploadStudentDocuments,
   getStudentStats,
   uploadMyProfilePicture,
   generateIdCard,
@@ -205,6 +206,52 @@ router.get('/:id', authenticate, getStudentById);
  *         description: Access denied (Dept Head can only update students in their department)
  */
 router.patch('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), updateStudent);
+
+/**
+ * @swagger
+ * /api/students/{id}/documents:
+ *   post:
+ *     summary: Upload student ID documents (Admin only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id_copy_front:
+ *                 type: string
+ *                 format: binary
+ *               id_copy_back:
+ *                 type: string
+ *                 format: binary
+ *               parent_id_copy_front:
+ *                 type: string
+ *                 format: binary
+ *               parent_id_copy_back:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Documents uploaded
+ *       403:
+ *         description: Access denied
+ */
+router.post('/:id/documents', authenticate, requireRoles('ADMIN'), upload.fields([
+  { name: 'id_copy_front', maxCount: 1 },
+  { name: 'id_copy_back', maxCount: 1 },
+  { name: 'parent_id_copy_front', maxCount: 1 },
+  { name: 'parent_id_copy_back', maxCount: 1 },
+]), uploadStudentDocuments);
 
 /**
  * @swagger

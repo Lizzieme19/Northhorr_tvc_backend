@@ -210,6 +210,65 @@ const updateStudent = async (req, res) => {
   }
 };
 
+// POST /api/students/:id/documents - Upload student ID copies (Admin only)
+const uploadStudentDocuments = async (req, res) => {
+  try {
+    const { id_copy_front, id_copy_back, parent_id_copy_front, parent_id_copy_back } = req.files || {};
+    
+    // Students can only upload their own documents, admins can upload any
+    const student = await prisma.student.findUnique({ where: { id: req.params.id } });
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    if (req.user.role === 'STUDENT' && student.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const updateData = {};
+
+    if (id_copy_front) {
+      const { url } = await uploadToB2(id_copy_front[0].buffer, id_copy_front[0].originalname, 'documents');
+      updateData.id_copy_front_url = url;
+    }
+
+    if (id_copy_back) {
+      const { url } = await uploadToB2(id_copy_back[0].buffer, id_copy_back[0].originalname, 'documents');
+      updateData.id_copy_back_url = url;
+    }
+
+    if (parent_id_copy_front) {
+      const { url } = await uploadToB2(parent_id_copy_front[0].buffer, parent_id_copy_front[0].originalname, 'documents');
+      updateData.parent_id_copy_front_url = url;
+    }
+
+    if (parent_id_copy_back) {
+      const { url } = await uploadToB2(parent_id_copy_back[0].buffer, parent_id_copy_back[0].originalname, 'documents');
+      updateData.parent_id_copy_back_url = url;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'At least one document file is required' });
+    }
+
+    const updated = await prisma.student.update({
+      where: { id: req.params.id },
+      data: updateData,
+      select: { 
+        id: true, 
+        admission_no: true, 
+        id_copy_front_url: true,
+        id_copy_back_url: true,
+        parent_id_copy_front_url: true,
+        parent_id_copy_back_url: true,
+      },
+    });
+
+    res.json({ message: 'Documents uploaded successfully', student: updated });
+  } catch (err) {
+    console.error('Document upload error:', err);
+    res.status(500).json({ error: 'Failed to upload documents' });
+  }
+};
+
 // POST /api/students/:id/photo
 const uploadPhoto = async (req, res) => {
   try {
@@ -407,4 +466,4 @@ const updateMyProfile = async (req, res) => {
   }
 };
 
-module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, getStudentStats, uploadMyProfilePicture, generateIdCard };
+module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard };
