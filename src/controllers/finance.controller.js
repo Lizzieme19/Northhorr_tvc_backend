@@ -116,8 +116,6 @@ const markFeePaid = async (req, res) => {
       select: {
         id: true, admission_no: true,
         admission_fee_paid: true, kuccps_fee_paid: true, student_id_fee_paid: true,
-      },
-      include: {
         application: { select: { email: true } },
         course: { select: { name: true } },
         department: { select: { name: true } },
@@ -134,7 +132,7 @@ const markFeePaid = async (req, res) => {
     const feeAmount = parseFloat(amount) || (fee_type === 'ADMISSION' ? 1500 : fee_type === 'STUDENT_ID' ? 500 : 500);
     
     // Send email asynchronously
-    sendFeeReminder(student.application.email, studentData, fee_type, feeAmount).catch(err => {
+    sendFeeReminder(updated.application?.email, studentData, fee_type, feeAmount).catch(err => {
       console.error('Failed to send fee email:', err);
     });
 
