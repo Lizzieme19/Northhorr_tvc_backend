@@ -797,6 +797,7 @@ model FeeType {
   amount      Float    // Default amount
   is_active   Boolean  @default(true) // Enable/disable fee type
   is_required Boolean  @default(false) // Mandatory fee
+  is_disabled Boolean  @default(false) // Additional flag for temporarily disabling fees
   applies_to  String   // ALL, SPECIFIC_COURSE, SPECIFIC_LEVEL
   course_id   String?  // If applies to specific course
   level       String?  // If applies to specific level (e.g., "Certificate", "Diploma")
@@ -815,6 +816,7 @@ model Term {
   start_date  DateTime
   end_date    DateTime
   academic_year String // e.g., "2024/2025"
+  term_cost   Float    @default(0) // Configurable cost per term
   is_active   Boolean  @default(true)
 
   created_at  DateTime @default(now())
