@@ -298,6 +298,8 @@ model Student {
   kuccps_fee_paid     Boolean @default(false)
   student_id_fee_paid Boolean @default(false)
   tuition_fee_paid    Boolean @default(false) // Manual tuition fee payment indication
+  full_year_paid      Boolean @default(false) // Full-year tuition payment
+  fee_adjustment      Float    @default(0) // Fee adjustment (discount/waiver amount)
 
   // Current term enrollment
   current_term_id String? // Active term for the student
