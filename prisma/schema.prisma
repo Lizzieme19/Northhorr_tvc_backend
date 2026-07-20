@@ -336,7 +336,7 @@ model FeeRecord {
   fee_type_id String?  // Reference to FeeType (optional for backward compatibility)
   term_id     String?  // Link to term for balance calculation
   amount      Float
-  reference_code String @unique @default(cuid()) // Unique reference code for audit trail
+  reference_code String? @unique // Unique reference code for audit trail
   paid_at     DateTime @default(now())
   received_by String
   notes       String?
