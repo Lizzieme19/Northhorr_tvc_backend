@@ -254,4 +254,80 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { login, refresh, logout, changePassword, createStaffAccount, getMe };
+// GET /api/auth/users (Admin only)
+const getAllUsers = async (req, res) => {
+  try {
+    const { role, page = 1, limit = 20, search } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = {};
+    if (role) where.role = role;
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          is_active: true,
+          must_change_password: true,
+          created_at: true,
+          student: {
+            select: {
+              id: true,
+              admission_no: true,
+              status: true,
+              course: { select: { name: true } },
+              department: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    res.json({
+      users,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (err) {
+    console.error('Get users error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// PATCH /api/auth/users/:id (Admin only)
+const updateUserStatus = async (req, res) => {
+  try {
+    const { is_active } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const updated = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { is_active },
+      select: { id: true, email: true, role: true, is_active: true },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    console.error('Update user status error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+module.exports = { login, refresh, logout, changePassword, createStaffAccount, getMe, getAllUsers, updateUserStatus };

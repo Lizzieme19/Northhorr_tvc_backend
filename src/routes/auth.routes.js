@@ -7,6 +7,8 @@ const {
   changePassword,
   createStaffAccount,
   getMe,
+  getAllUsers,
+  updateUserStatus,
 } = require('../controllers/auth.controller');
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
@@ -175,5 +177,59 @@ router.get('/me', authenticate, getMe);
  *         description: User already exists
  */
 router.post('/create-staff', authenticate, requireRoles('ADMIN'), createStaffAccount);
+
+/**
+ * @swagger
+ * /api/auth/users:
+ *   get:
+ *     summary: Get all users (Admin only)
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Users retrieved
+ */
+router.get('/users', authenticate, requireRoles('ADMIN'), getAllUsers);
+
+/**
+ * @swagger
+ * /api/auth/users/:id:
+ *   patch:
+ *     summary: Update user status (Admin only)
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               is_active:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: User status updated
+ */
+router.patch('/users/:id', authenticate, requireRoles('ADMIN'), updateUserStatus);
 
 module.exports = router;
