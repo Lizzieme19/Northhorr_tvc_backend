@@ -32,38 +32,52 @@ const calculateTermFees = async (studentId, termId) => {
     },
   });
 
-  let totalFees = term.term_cost || 0; // Base term cost
+  let totalFees = term.term_cost || 0; // Base term cost (tuition)
+  const feeBreakdown = {
+    termCost: term.term_cost || 0,
+    termBasedFees: [],
+    oneTimeFees: [],
+  };
 
-  // Add applicable fee types
+  // Process fee types
   for (const feeType of feeTypes) {
     if (feeType.term_based) {
-      // Term-based fees are already included in term_cost or added per term
-      if (!feeType.is_required) {
+      // Term-based fees (Library, Laboratory, Sports) - add for each term
+      if (feeType.code !== 'TUITION') { // Skip TUITION as it's the term_cost
         totalFees += feeType.amount;
+        feeBreakdown.termBasedFees.push({
+          name: feeType.name,
+          code: feeType.code,
+          amount: feeType.amount,
+        });
       }
     } else {
-      // One-time fees (like admission fee) - only add if not already paid
-      if (feeType.is_required) {
-        const hasPaid = await prisma.feeRecord.findFirst({
-          where: {
-            student_id: studentId,
-            fee_type_id: feeType.id,
-          },
+      // One-time fees (Admission, Student ID, KUCCPS, Medical) - only add if not already paid
+      const hasPaid = await prisma.feeRecord.findFirst({
+        where: {
+          student_id: studentId,
+          fee_type_id: feeType.id,
+        },
+      });
+      if (!hasPaid) {
+        totalFees += feeType.amount;
+        feeBreakdown.oneTimeFees.push({
+          name: feeType.name,
+          code: feeType.code,
+          amount: feeType.amount,
         });
-        if (!hasPaid) {
-          totalFees += feeType.amount;
-        }
       }
     }
   }
 
   // Apply fee adjustment if any
-  totalFees -= student.fee_adjustment || 0;
+  const adjustment = student.fee_adjustment || 0;
+  totalFees -= adjustment;
 
   return {
     totalFees: Math.max(0, totalFees),
-    termCost: term.term_cost,
-    feeTypes: feeTypes,
+    feeBreakdown,
+    adjustment,
     level: student.level,
     course: student.course.name,
   };
