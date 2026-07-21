@@ -129,6 +129,7 @@ model User {
   uploaded_resources Resource[]
   uploaded_news     News[]
   approved_lpos      LPO[] @relation("ApprovedBy")
+  promoted_progressions StudentProgression[] @relation("ProgressionPromoter")
 }
 
 model RefreshToken {
@@ -317,7 +318,6 @@ model Student {
   student_balances StudentBalance[]
   current_term    Term?         @relation("StudentCurrentTerm", fields: [current_term_id], references: [id])
   progressions    StudentProgression[]
-  promoted_students StudentProgression[] @relation("ProgressionPromoter")
 }
 
 model AdmissionLetter {
