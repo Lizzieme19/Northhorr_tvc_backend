@@ -29,6 +29,7 @@ const newsRoutes = require('./routes/news.routes');
 const feeTypesRoutes = require('./routes/feeTypes.routes');
 const termsRoutes = require('./routes/terms.routes');
 const contactRoutes = require('./routes/contact.routes');
+const feeRoutes = require('./routes/fee.routes');
 
 const app = express();
 
@@ -96,6 +97,7 @@ app.use('/api/news', newsRoutes);
 app.use('/api/fee-types', feeTypesRoutes);
 app.use('/api/terms', termsRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/fees', feeRoutes);
 
 // 404 handler
 app.use((req, res) => {

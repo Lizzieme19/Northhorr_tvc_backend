@@ -848,7 +848,7 @@ model StudentBalance {
   student     Student  @relation(fields: [student_id], references: [id])
   term        Term     @relation(fields: [term_id], references: [id])
 
-  @@unique([student_id, term_id])
+  @@unique([student_id, term_id], name: "student_term")
 }
 
 model StudentProgression {

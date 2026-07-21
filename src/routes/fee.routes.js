@@ -1,0 +1,160 @@
+const express = require('express');
+const router = express.Router();
+const {
+  enrollStudentInTerm,
+  recordFeePayment,
+  getStudentFeeSummary,
+  promoteStudent,
+  getStudentProgression,
+} = require('../controllers/fee.controller');
+const { authenticate } = require('../middleware/auth');
+const { requireRoles } = require('../middleware/roles');
+
+/**
+ * @swagger
+ * /api/fees/students/{studentId}/terms/{termId}/enroll:
+ *   post:
+ *     summary: Enroll student in a term with fee calculation
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: studentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: termId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               allowPartialPayment:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Student enrolled successfully
+ */
+router.post('/students/:studentId/terms/:termId/enroll', authenticate, requireRoles('ADMIN', 'FINANCE'), enrollStudentInTerm);
+
+/**
+ * @swagger
+ * /api/fees/students/{studentId}/terms/{termId}/payment:
+ *   post:
+ *     summary: Record fee payment for a student
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: studentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: termId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               amount:
+ *                 type: number
+ *               fee_type_id:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Payment recorded successfully
+ */
+router.post('/students/:studentId/terms/:termId/payment', authenticate, requireRoles('ADMIN', 'FINANCE'), recordFeePayment);
+
+/**
+ * @swagger
+ * /api/fees/students/{studentId}/summary:
+ *   get:
+ *     summary: Get student fee summary
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: studentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Fee summary retrieved
+ */
+router.get('/students/:studentId/summary', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentFeeSummary);
+
+/**
+ * @swagger
+ * /api/fees/students/{studentId}/promote:
+ *   post:
+ *     summary: Promote student to next level
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: studentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               toLevel:
+ *                 type: string
+ *               termId:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               forcePromote:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Student promoted successfully
+ */
+router.post('/students/:studentId/promote', authenticate, requireRoles('ADMIN'), promoteStudent);
+
+/**
+ * @swagger
+ * /api/fees/students/{studentId}/progression:
+ *   get:
+ *     summary: Get student progression history
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: studentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Progression history retrieved
+ */
+router.get('/students/:studentId/progression', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentProgression);
+
+module.exports = router;
