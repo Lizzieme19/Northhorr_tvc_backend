@@ -836,7 +836,7 @@ model StudentBalance {
   id          String   @id @default(uuid())
   student_id  String
   term_id     String
-  level       String   // Level at time of enrollment
+  level       String   @default("") // Level at time of enrollment
   total_fees  Float    @default(0)
   amount_paid Float    @default(0)
   balance     Float    @default(0)
