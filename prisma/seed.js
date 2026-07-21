@@ -226,6 +226,27 @@ async function main() {
   console.log('HR credentials:          hr@ntvc.ac.ke / HR@NTVC2026');
   console.log('Procurement credentials: procurement@ntvc.ac.ke / Procurement@NTVC2026');
   console.log('Staff credentials:       staff@ntvc.ac.ke / Staff@NTVC2026');
+
+  // Seed fee types
+  const feeTypes = [
+    { name: 'Admission Fee', code: 'ADMISSION', amount: 1000, is_required: true, term_based: false, description: 'One-time admission fee for all students' },
+    { name: 'Student ID Fee', code: 'STUDENT_ID', amount: 500, is_required: true, term_based: false, description: 'Fee for student ID card production' },
+    { name: 'KUCCPS Fee', code: 'KUCCPS', amount: 1500, is_required: false, term_based: false, description: 'KUCCPS placement fee for government-sponsored students' },
+    { name: 'Tuition Fee', code: 'TUITION', amount: 0, is_required: true, term_based: true, description: 'Per-term tuition fee (amount set per term)' },
+    { name: 'Library Fee', code: 'LIBRARY', amount: 500, is_required: false, term_based: true, description: 'Library access fee per term' },
+    { name: 'Laboratory Fee', code: 'LABORATORY', amount: 1000, is_required: false, term_based: true, description: 'Laboratory usage fee per term' },
+    { name: 'Medical Fee', code: 'MEDICAL', amount: 300, is_required: false, term_based: false, description: 'Medical services fee' },
+    { name: 'Sports Fee', code: 'SPORTS', amount: 200, is_required: false, term_based: true, description: 'Sports and activities fee per term' },
+  ];
+
+  for (const feeType of feeTypes) {
+    await prisma.feeType.upsert({
+      where: { code: feeType.code },
+      update: { ...feeType },
+      create: { ...feeType, applies_to: 'ALL' },
+    });
+  }
+  console.log(`✅ Fee types seeded: ${feeTypes.length} fee types`);
 }
 
 main()
