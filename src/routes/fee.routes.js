@@ -6,6 +6,8 @@ const {
   getStudentFeeSummary,
   promoteStudent,
   getStudentProgression,
+  studentSelfEnroll,
+  getStudentEnrollments,
 } = require('../controllers/fee.controller');
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
@@ -156,5 +158,39 @@ router.post('/students/:studentId/promote', authenticate, requireRoles('ADMIN'),
  *         description: Progression history retrieved
  */
 router.get('/students/:studentId/progression', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentProgression);
+
+/**
+ * @swagger
+ * /api/fees/terms/{termId}/enroll:
+ *   post:
+ *     summary: Student self-enrollment in a term
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: termId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Student enrolled successfully
+ */
+router.post('/terms/:termId/enroll', authenticate, requireRoles('STUDENT'), studentSelfEnroll);
+
+/**
+ * @swagger
+ * /api/fees/students/me/enrollments:
+ *   get:
+ *     summary: Get student's own enrollments
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Student enrollments retrieved
+ */
+router.get('/students/me/enrollments', authenticate, requireRoles('STUDENT'), getStudentEnrollments);
 
 module.exports = router;

@@ -338,6 +338,102 @@ const getStudentProgression = async (req, res) => {
   }
 };
 
+// Student self-enrollment in a term
+const studentSelfEnroll = async (req, res) => {
+  try {
+    const { termId } = req.params;
+    const studentId = req.user.student_id;
+
+    if (!studentId) {
+      return res.status(400).json({ error: 'Student profile not found for this user' });
+    }
+
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: {
+        student_balances: {
+          where: { term_id: termId },
+        },
+      },
+    });
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // Check if already enrolled in this term
+    if (student.student_balances.length > 0) {
+      return res.status(400).json({ error: 'Already enrolled in this term' });
+    }
+
+    // Check if term is active
+    const term = await prisma.term.findUnique({
+      where: { id: termId },
+    });
+
+    if (!term) {
+      return res.status(404).json({ error: 'Term not found' });
+    }
+
+    if (!term.is_active) {
+      return res.status(400).json({ error: 'Term is not currently active for enrollment' });
+    }
+
+    // Calculate fees
+    const feeCalculation = await calculateTermFees(studentId, termId);
+
+    // Create student balance record
+    const studentBalance = await prisma.studentBalance.create({
+      data: {
+        student_id: studentId,
+        term_id: termId,
+        level: student.level,
+        total_fees: feeCalculation.totalFees,
+        amount_paid: 0,
+        balance: feeCalculation.totalFees,
+        status: feeCalculation.totalFees === 0 ? 'PAID' : 'PENDING',
+      },
+    });
+
+    // Update student's current term
+    await prisma.student.update({
+      where: { id: studentId },
+      data: { current_term_id: termId },
+    });
+
+    res.json({
+      message: 'Enrolled in term successfully',
+      studentBalance,
+      feeCalculation,
+    });
+  } catch (err) {
+    console.error('Student self-enroll error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// Get student's own enrollments
+const getStudentEnrollments = async (req, res) => {
+  try {
+    const studentId = req.user.student_id;
+
+    if (!studentId) {
+      return res.status(400).json({ error: 'Student profile not found for this user' });
+    }
+
+    const enrollments = await prisma.studentBalance.findMany({
+      where: { student_id: studentId },
+      include: { term: true },
+      orderBy: { created_at: 'desc' },
+    });
+
+    res.json(enrollments);
+  } catch (err) {
+    console.error('Get student enrollments error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
 module.exports = {
   calculateTermFees,
   enrollStudentInTerm,
@@ -345,4 +441,6 @@ module.exports = {
   getStudentFeeSummary,
   promoteStudent,
   getStudentProgression,
+  studentSelfEnroll,
+  getStudentEnrollments,
 };
