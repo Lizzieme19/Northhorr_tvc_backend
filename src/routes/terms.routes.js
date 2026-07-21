@@ -35,7 +35,7 @@ const {
  *       200:
  *         description: List of terms
  */
-router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE'), getAllTerms);
+router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'STUDENT'), getAllTerms);
 
 /**
  * @swagger
