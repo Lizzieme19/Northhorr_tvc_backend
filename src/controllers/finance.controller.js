@@ -93,6 +93,8 @@ const markFeePaid = async (req, res) => {
   try {
     const { fee_type_id, term_id, amount } = req.body;
 
+    console.log('Mark fee paid request:', { studentId: req.params.id, fee_type_id, term_id, amount });
+
     if (!fee_type_id) {
       return res.status(400).json({ error: 'fee_type_id is required' });
     }
@@ -101,6 +103,8 @@ const markFeePaid = async (req, res) => {
     const feeType = await prisma.feeType.findUnique({
       where: { id: fee_type_id },
     });
+
+    console.log('Fee type found:', feeType);
 
     if (!feeType) return res.status(404).json({ error: 'Fee type not found' });
     if (!feeType.is_active) return res.status(400).json({ error: 'Fee type is not active' });
