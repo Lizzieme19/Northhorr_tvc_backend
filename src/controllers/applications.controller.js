@@ -375,6 +375,105 @@ const getMyApplication = async (req, res) => {
   }
 };
 
+// PATCH /api/applications/:id/documents — Update application documents and data
+const updateApplicationDocuments = async (req, res) => {
+  try {
+    const applicationId = req.params.id;
+    const body = req.body;
+    
+    // Upload documents to B2
+    let docUrls = {};
+    if (req.files && Object.keys(req.files).length > 0) {
+      const uploaded = await uploadDocuments(req.files, 'documents');
+      for (const [key, val] of Object.entries(uploaded)) {
+        docUrls[key] = val.url;
+      }
+    }
+
+    // Build update data - only update fields that were provided
+    const updateData = {};
+    
+    // Personal details
+    if (body.surname) updateData.surname = body.surname;
+    if (body.other_names) updateData.other_names = body.other_names;
+    if (body.gender) updateData.gender = body.gender;
+    if (body.date_of_birth) updateData.date_of_birth = new Date(body.date_of_birth);
+    if (body.nationality) updateData.nationality = body.nationality;
+    if (body.religion) updateData.religion = body.religion;
+    if (body.id_number) updateData.id_number = body.id_number;
+    if (body.birth_cert_no) updateData.birth_cert_no = body.birth_cert_no;
+    
+    // Contact information
+    if (body.email) updateData.email = body.email;
+    if (body.phone) updateData.phone = body.phone;
+    if (body.address) updateData.address = body.address;
+    
+    // Academic information
+    if (body.kcpe_index) updateData.kcpe_index = body.kcpe_index;
+    if (body.kcpe_marks) updateData.kcpe_marks = parseInt(body.kcpe_marks);
+    if (body.kcse_index) updateData.kcse_index = body.kcse_index;
+    if (body.kcse_grade) updateData.kcse_grade = body.kcse_grade;
+    if (body.previous_school) updateData.previous_school = body.previous_school;
+    
+    // Parent/Guardian information
+    if (body.parent_names) updateData.parent_names = body.parent_names;
+    if (body.parent_relationship) updateData.parent_relationship = body.parent_relationship;
+    if (body.parent_phone) updateData.parent_phone = body.parent_phone;
+    if (body.parent_email) updateData.parent_email = body.parent_email;
+    
+    // Father information
+    if (body.father_present !== undefined) updateData.father_present = body.father_present === 'true' || body.father_present === true;
+    if (body.father_name) updateData.father_name = body.father_name;
+    if (body.father_phone) updateData.father_phone = body.father_phone;
+    if (body.father_email) updateData.father_email = body.father_email;
+    if (body.father_occupation) updateData.father_occupation = body.father_occupation;
+    
+    // Mother information
+    if (body.mother_present !== undefined) updateData.mother_present = body.mother_present === 'true' || body.mother_present === true;
+    if (body.mother_name) updateData.mother_name = body.mother_name;
+    if (body.mother_phone) updateData.mother_phone = body.mother_phone;
+    if (body.mother_email) updateData.mother_email = body.mother_email;
+    if (body.mother_occupation) updateData.mother_occupation = body.mother_occupation;
+    
+    // Medical information
+    if (body.medical_conditions) updateData.medical_conditions = body.medical_conditions;
+    if (body.allergies) updateData.allergies = body.allergies;
+    if (body.disability) updateData.disability = body.disability;
+    if (body.emergency_person) updateData.emergency_person = body.emergency_person;
+    if (body.emergency_phone) updateData.emergency_phone = body.emergency_phone;
+    
+    // Course selection
+    if (body.course_id) updateData.course_id = body.course_id;
+    if (body.department_id) updateData.department_id = body.department_id;
+    if (body.level_applied) updateData.level_applied = body.level_applied;
+    
+    // Documents
+    if (docUrls.doc_kcpe) updateData.doc_kcpe = docUrls.doc_kcpe;
+    if (docUrls.doc_kcse) updateData.doc_kcse = docUrls.doc_kcse;
+    if (docUrls.doc_id_copy) updateData.doc_id_copy = docUrls.doc_id_copy;
+    if (docUrls.doc_birth_cert) updateData.doc_birth_cert = docUrls.doc_birth_cert;
+    if (docUrls.doc_medical) updateData.doc_medical = docUrls.doc_medical;
+    if (docUrls.id_copy_front) updateData.id_copy_front_url = docUrls.id_copy_front;
+    if (docUrls.id_copy_back) updateData.id_copy_back_url = docUrls.id_copy_back;
+    if (docUrls.parent_id_copy_front) updateData.parent_id_copy_front_url = docUrls.parent_id_copy_front;
+    if (docUrls.parent_id_copy_back) updateData.parent_id_copy_back_url = docUrls.parent_id_copy_back;
+
+    // Update application
+    const updated = await prisma.application.update({
+      where: { id: applicationId },
+      data: updateData,
+    });
+
+    res.json({
+      message: 'Application updated successfully',
+      application: updated,
+    });
+  } catch (err) {
+    console.error('Application update error:', err);
+    res.status(500).json({ error: 'Failed to update application' });
+  }
+};
+
 module.exports = {
   submitApplication,
   getApplications,
@@ -382,4 +481,5 @@ module.exports = {
   updateApplicationStatus,
   importKuccps,
   getMyApplication,
+  updateApplicationDocuments,
 };

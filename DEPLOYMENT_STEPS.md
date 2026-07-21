@@ -244,3 +244,8 @@ Total cost: ~$6/month
 
 Stop containers - docker-compose down (keeps PostgreSQL data intact)
 Rebuild and start - docker-compose up -d --build rebuilds the backend image with
+✅ Admin user: admin@ntvc.ac.ke / Admin@NTVC2026
+✅ Finance user: finance@ntvc.ac.ke / Finance@NTVC2026
+✅ HR user: hr@ntvc.ac.ke / HR@NTVC2026
+✅ Procurement user: procurement@ntvc.ac.ke / Procurement@NTVC2026
+✅ Staff user: staff@ntvc.ac.ke / Staff@NTVC2026

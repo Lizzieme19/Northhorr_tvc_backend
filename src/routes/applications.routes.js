@@ -11,6 +11,7 @@ const {
   updateApplicationStatus,
   importKuccps,
   getMyApplication,
+  updateApplicationDocuments,
 } = require('../controllers/applications.controller');
 
 const docUpload = upload.fields([
@@ -189,6 +190,130 @@ router.get('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), getApplicat
  *         description: Application status updated
  */
 router.patch('/:id/status', authenticate, requireRoles('ADMIN'), updateApplicationStatus);
+
+/**
+ * @swagger
+ * /api/applications/{id}/documents:
+ *   patch:
+ *     summary: Update application data and documents (Admin only)
+ *     tags: [Applications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               surname:
+ *                 type: string
+ *               other_names:
+ *                 type: string
+ *               gender:
+ *                 type: string
+ *               date_of_birth:
+ *                 type: string
+ *                 format: date
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               phone:
+ *                 type: string
+ *               address:
+ *                 type: string
+ *               kcpe_index:
+ *                 type: string
+ *               kcpe_marks:
+ *                 type: integer
+ *               kcse_index:
+ *                 type: string
+ *               kcse_grade:
+ *                 type: string
+ *               previous_school:
+ *                 type: string
+ *               parent_names:
+ *                 type: string
+ *               parent_relationship:
+ *                 type: string
+ *               parent_phone:
+ *                 type: string
+ *               parent_email:
+ *                 type: string
+ *               father_present:
+ *                 type: boolean
+ *               father_name:
+ *                 type: string
+ *               father_phone:
+ *                 type: string
+ *               father_email:
+ *                 type: string
+ *               father_occupation:
+ *                 type: string
+ *               mother_present:
+ *                 type: boolean
+ *               mother_name:
+ *                 type: string
+ *               mother_phone:
+ *                 type: string
+ *               mother_email:
+ *                 type: string
+ *               mother_occupation:
+ *                 type: string
+ *               medical_conditions:
+ *                 type: string
+ *               allergies:
+ *                 type: string
+ *               disability:
+ *                 type: string
+ *               emergency_person:
+ *                 type: string
+ *               emergency_phone:
+ *                 type: string
+ *               course_id:
+ *                 type: string
+ *               department_id:
+ *                 type: string
+ *               level_applied:
+ *                 type: string
+ *               doc_kcpe:
+ *                 type: string
+ *                 format: binary
+ *               doc_kcse:
+ *                 type: string
+ *                 format: binary
+ *               doc_id_copy:
+ *                 type: string
+ *                 format: binary
+ *               doc_birth_cert:
+ *                 type: string
+ *                 format: binary
+ *               doc_medical:
+ *                 type: string
+ *                 format: binary
+ *               id_copy_front:
+ *                 type: string
+ *                 format: binary
+ *               id_copy_back:
+ *                 type: string
+ *                 format: binary
+ *               parent_id_copy_front:
+ *                 type: string
+ *                 format: binary
+ *               parent_id_copy_back:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Application updated successfully
+ */
+router.patch('/:id/documents', authenticate, requireRoles('ADMIN'), docUpload, updateApplicationDocuments);
 
 /**
  * @swagger

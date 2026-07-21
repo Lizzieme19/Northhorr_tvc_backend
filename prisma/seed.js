@@ -229,8 +229,8 @@ async function main() {
 
   // Seed fee types
   const feeTypes = [
-    { name: 'Admission Fee', code: 'ADMISSION', amount: 1000, is_required: true, term_based: false, description: 'One-time admission fee for all students' },
-    { name: 'Student ID Fee', code: 'STUDENT_ID', amount: 500, is_required: true, term_based: false, description: 'Fee for student ID card production' },
+    { name: 'Admission Fee', code: 'ADMISSION', amount: 1000, is_required: false, term_based: false, description: 'One-time admission fee for all students' },
+    { name: 'Student ID Fee', code: 'STUDENT_ID', amount: 500, is_required: false, term_based: false, description: 'Fee for student ID card production' },
     { name: 'KUCCPS Fee', code: 'KUCCPS', amount: 1500, is_required: false, term_based: false, description: 'KUCCPS placement fee for government-sponsored students' },
     { name: 'Tuition Fee', code: 'TUITION', amount: 0, is_required: true, term_based: true, description: 'Per-term tuition fee (amount set per term)' },
     { name: 'Library Fee', code: 'LIBRARY', amount: 500, is_required: false, term_based: true, description: 'Library access fee per term' },
