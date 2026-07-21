@@ -316,6 +316,8 @@ model Student {
   fee_records     FeeRecord[]
   student_balances StudentBalance[]
   current_term    Term?         @relation("StudentCurrentTerm", fields: [current_term_id], references: [id])
+  progressions    StudentProgression[]
+  promoted_students StudentProgression[] @relation("ProgressionPromoter")
 }
 
 model AdmissionLetter {
@@ -827,12 +829,14 @@ model Term {
   fee_records FeeRecord[] @relation("FeeRecordTerm")
   student_balances StudentBalance[]
   students Student[] @relation("StudentCurrentTerm")
+  progressions StudentProgression[]
 }
 
 model StudentBalance {
   id          String   @id @default(uuid())
   student_id  String
   term_id     String
+  level       String   // Level at time of enrollment
   total_fees  Float    @default(0)
   amount_paid Float    @default(0)
   balance     Float    @default(0)
@@ -845,6 +849,24 @@ model StudentBalance {
   term        Term     @relation(fields: [term_id], references: [id])
 
   @@unique([student_id, term_id])
+}
+
+model StudentProgression {
+  id              String   @id @default(uuid())
+  student_id      String
+  from_level      String?  // Previous level (null for initial enrollment)
+  to_level        String   // New level
+  term_id         String   // Term when progression occurred
+  academic_year   String   // Academic year
+  promoted_by     String   // Admin who approved the progression
+  notes           String?
+  fee_clearance   Boolean  @default(false) // Whether fees were cleared before progression
+
+  created_at      DateTime @default(now())
+
+  student         Student  @relation(fields: [student_id], references: [id])
+  term            Term     @relation(fields: [term_id], references: [id])
+  promoter        User     @relation("ProgressionPromoter", fields: [promoted_by], references: [id])
 }
 
 model Budget {
