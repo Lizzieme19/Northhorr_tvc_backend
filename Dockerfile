@@ -23,9 +23,6 @@ RUN chmod +x /wait-for-it.sh
 # Copy application files
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate
-
 # Expose port
 EXPOSE 5000
 
