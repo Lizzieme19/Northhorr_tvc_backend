@@ -9,6 +9,7 @@ const {
   getMe,
   getAllUsers,
   updateUserStatus,
+  deleteUser,
 } = require('../controllers/auth.controller');
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
@@ -231,5 +232,19 @@ router.get('/users', authenticate, requireRoles('ADMIN'), getAllUsers);
  *         description: User status updated
  */
 router.patch('/users/:id', authenticate, requireRoles('ADMIN'), updateUserStatus);
+
+/**
+ * @swagger
+ * /api/auth/users/:id:
+ *   delete:
+ *     summary: Delete user (Admin only)
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User deleted successfully
+ */
+router.delete('/users/:id', authenticate, requireRoles('ADMIN'), deleteUser);
 
 module.exports = router;

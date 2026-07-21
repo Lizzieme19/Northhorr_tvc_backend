@@ -313,15 +313,29 @@ const getAllUsers = async (req, res) => {
 // PATCH /api/auth/users/:id (Admin only)
 const updateUserStatus = async (req, res) => {
   try {
-    const { is_active } = req.body;
+    const { is_active, email, role, department_id, password } = req.body;
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    const updateData = {};
+    if (is_active !== undefined) updateData.is_active = is_active;
+    if (email) updateData.email = email;
+    if (role) updateData.role = role;
+    if (password) updateData.password = await bcrypt.hash(password, 12);
+
     const updated = await prisma.user.update({
       where: { id: req.params.id },
-      data: { is_active },
+      data: updateData,
       select: { id: true, email: true, role: true, is_active: true },
     });
+
+    // If dept head role changed, update department
+    if (role === 'DEPT_HEAD' && department_id) {
+      await prisma.department.update({
+        where: { id: department_id },
+        data: { head_user_id: updated.id },
+      });
+    }
 
     res.json(updated);
   } catch (err) {
@@ -330,4 +344,33 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
-module.exports = { login, refresh, logout, changePassword, createStaffAccount, getMe, getAllUsers, updateUserStatus };
+// DELETE /api/auth/users/:id (Admin only)
+const deleteUser = async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Prevent deleting the current admin
+    if (user.id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    // Delete associated student record if exists
+    if (user.role === 'STUDENT') {
+      await prisma.student.deleteMany({ where: { user_id: user.id } });
+    }
+
+    // Delete refresh tokens
+    await prisma.refreshToken.deleteMany({ where: { user_id: user.id } });
+
+    // Delete user
+    await prisma.user.delete({ where: { id: req.params.id } });
+
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    console.error('Delete user error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+module.exports = { login, refresh, logout, changePassword, createStaffAccount, getMe, getAllUsers, updateUserStatus, deleteUser };
