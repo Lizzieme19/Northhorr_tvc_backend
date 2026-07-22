@@ -820,6 +820,7 @@ model Term {
   start_date  DateTime
   end_date    DateTime
   academic_year String // e.g., "2024/2025"
+  intake      String   // SEPTEMBER, JANUARY, or MAY - which intake this term belongs to
   term_cost   Float    @default(0) // Configurable cost per term
   is_active   Boolean  @default(true)
 
