@@ -15,6 +15,10 @@ const {
   getStudentStats,
   uploadMyProfilePicture,
   generateIdCard,
+  generatePrefilledDocument,
+  enrollInTerm,
+  getMyEnrollments,
+  assignStudentTerm,
 } = require('../controllers/students.controller');
 
 /**
@@ -251,7 +255,6 @@ router.post('/:id/documents', authenticate, requireRoles('ADMIN'), upload.fields
   { name: 'id_copy_back', maxCount: 1 },
   { name: 'parent_id_copy_front', maxCount: 1 },
   { name: 'parent_id_copy_back', maxCount: 1 },
-  { name: 'medical_report', maxCount: 1 },
   { name: 'kcse_certificate', maxCount: 1 },
   { name: 'birth_certificate', maxCount: 1 },
   { name: 'other_documents', maxCount: 1 },
@@ -308,5 +311,89 @@ router.post('/:id/photo', authenticate, upload.single('photo'), uploadPhoto);
  *         description: Student not found
  */
 router.get('/:id/id-card', authenticate, generateIdCard);
+
+/**
+ * @swagger
+ * /api/students/documents/{type}:
+ *   get:
+ *     summary: Generate prefilled document (Student only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: type
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [admission_form, medical_form]
+ *     responses:
+ *       200:
+ *         description: Document generated
+ *       404:
+ *         description: Student not found
+ */
+router.get('/documents/:type', authenticate, requireRoles('STUDENT'), requirePasswordChange, generatePrefilledDocument);
+
+/**
+ * @swagger
+ * /api/students/me/enrollments:
+ *   get:
+ *     summary: Get current student's term enrollments
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Student's term enrollments
+ */
+router.get('/me/enrollments', authenticate, requireRoles('STUDENT'), requirePasswordChange, getMyEnrollments);
+
+/**
+ * @swagger
+ * /api/students/me/enroll/{termId}:
+ *   post:
+ *     summary: Enroll in a term (Student self-enrollment)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: termId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Successfully enrolled
+ *       400:
+ *         description: Cannot enroll (reason provided)
+ */
+router.post('/me/enroll/:termId', authenticate, requireRoles('STUDENT'), requirePasswordChange, enrollInTerm);
+
+/**
+ * @swagger
+ * /api/students/{id}/term/{termId}:
+ *   post:
+ *     summary: Assign student to term (Admin only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: termId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Term assigned successfully
+ */
+router.post('/:id/term/:termId', authenticate, requireRoles('ADMIN'), assignStudentTerm);
 
 module.exports = router;

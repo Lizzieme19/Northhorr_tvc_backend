@@ -2,6 +2,10 @@ const prisma = require('../config/db');
 const { uploadToS3 } = require('../middleware/upload');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const PDFDocument = require('pdfkit');
+const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = require('docx');
+const fs = require('fs');
+const path = require('path');
+const { createStudentBalance, canEnrollInTerm } = require('../utils/termHelper');
 
 const studentIncludes = {
   user: { select: { id: true, email: true, role: true } },
@@ -218,7 +222,6 @@ const uploadStudentDocuments = async (req, res) => {
       id_copy_back, 
       parent_id_copy_front, 
       parent_id_copy_back,
-      medical_report,
       kcse_certificate,
       birth_certificate,
       other_documents
@@ -252,11 +255,6 @@ const uploadStudentDocuments = async (req, res) => {
     if (parent_id_copy_back) {
       const { url } = await uploadToS3(parent_id_copy_back[0].buffer, parent_id_copy_back[0].originalname, 'documents');
       updateData.parent_id_copy_back_url = url;
-    }
-
-    if (medical_report) {
-      const { url } = await uploadToS3(medical_report[0].buffer, medical_report[0].originalname, 'documents');
-      updateData.medical_report_url = url;
     }
 
     if (kcse_certificate) {
@@ -495,4 +493,232 @@ const updateMyProfile = async (req, res) => {
   }
 };
 
-module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard };
+// GET /api/students/documents/:type - Generate prefilled document
+const generatePrefilledDocument = async (req, res) => {
+  try {
+    const { type } = req.params;
+    const student = await prisma.student.findUnique({
+      where: { user_id: req.user.id },
+      include: {
+        application: true,
+        course: true,
+        department: true,
+      },
+    });
+
+    if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    let doc;
+    const fullName = `${student.application.surname} ${student.application.other_names}`;
+
+    if (type === 'admission_form') {
+      doc = new Document({
+        sections: [{
+          properties: {},
+          children: [
+            new Paragraph({
+              text: 'NORTH HORR TECHNICAL & VOCATIONAL COLLEGE',
+              heading: HeadingLevel.HEADING_1,
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 200 },
+            }),
+            new Paragraph({
+              text: 'ADMISSION FOR TRAINING FORM',
+              heading: HeadingLevel.HEADING_2,
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 400 },
+            }),
+            new Paragraph({ text: 'Personal Information', heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 200 } }),
+            new Paragraph({ text: `Full Name: ${fullName}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Date of Birth: ${student.application.date_of_birth ? new Date(student.application.date_of_birth).toLocaleDateString() : 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Gender: ${student.application.gender || 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `ID Number: ${student.application.id_number || 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Phone: ${student.application.phone || 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Address: ${student.application.address || 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Emergency Contact: ${student.application.emergency_person || 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Emergency Phone: ${student.application.emergency_phone || 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: 'Course Information', heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 200 } }),
+            new Paragraph({ text: `Admission Number: ${student.admission_no}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Course: ${student.course.name}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Department: ${student.department.name}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Level: ${student.level}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Intake: ${student.intake} ${student.year}`, spacing: { after: 100 } }),
+          ],
+        }],
+      });
+    } else if (type === 'medical_form') {
+      doc = new Document({
+        sections: [{
+          properties: {},
+          children: [
+            new Paragraph({
+              text: 'NORTH HORR TECHNICAL & VOCATIONAL COLLEGE',
+              heading: HeadingLevel.HEADING_1,
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 200 },
+            }),
+            new Paragraph({
+              text: 'STUDENTS ENTRANCE MEDICAL EXAMINATION FORM',
+              heading: HeadingLevel.HEADING_2,
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 400 },
+            }),
+            new Paragraph({ text: 'Student Information', heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 200 } }),
+            new Paragraph({ text: `Student Name: ${fullName}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Admission Number: ${student.admission_no}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Date of Birth: ${student.application.date_of_birth ? new Date(student.application.date_of_birth).toLocaleDateString() : 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: `Gender: ${student.application.gender || 'N/A'}`, spacing: { after: 100 } }),
+            new Paragraph({ text: 'Medical Information', heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 200 } }),
+            new Paragraph({ text: 'Blood Group: _______________', spacing: { after: 100 } }),
+            new Paragraph({ text: 'Any Chronic Illness: _______________', spacing: { after: 100 } }),
+            new Paragraph({ text: 'Allergies: _______________', spacing: { after: 100 } }),
+            new Paragraph({ text: 'Hospital/Facility Information', heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 200 } }),
+            new Paragraph({ text: 'Hospital/Facility Name: _______________', spacing: { after: 100 } }),
+            new Paragraph({ text: 'Doctor\'s Name: _______________', spacing: { after: 100 } }),
+            new Paragraph({ text: 'Examination Date: _______________', spacing: { after: 100 } }),
+            new Paragraph({ text: 'Doctor\'s Remarks:', spacing: { after: 100 } }),
+            new Paragraph({ text: '_________________________________________________________________', spacing: { after: 100 } }),
+            new Paragraph({ text: '_________________________________________________________________', spacing: { after: 100 } }),
+            new Paragraph({ text: '_________________________________________________________________', spacing: { after: 300 } }),
+            new Paragraph({ text: 'Doctor\'s Signature: _______________   Date: _______________', spacing: { after: 100 } }),
+            new Paragraph({ text: 'Hospital Stamp: _______________', spacing: { after: 100 } }),
+          ],
+        }],
+      });
+    } else {
+      return res.status(400).json({ error: 'Invalid document type' });
+    }
+
+    const buffer = await Packer.toBuffer(doc);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${type}_${student.admission_no}.docx"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Document generation error:', err);
+    res.status(500).json({ error: 'Failed to generate document' });
+  }
+};
+
+// POST /api/students/me/enroll/:termId - Student self-enrollment in a term
+const enrollInTerm = async (req, res) => {
+  try {
+    const { termId } = req.params;
+    
+    const student = await prisma.student.findUnique({
+      where: { user_id: req.user.id },
+      include: { course: true }
+    });
+
+    if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    // Check if student can enroll
+    const { canEnroll, reason } = await canEnrollInTerm(student.id, termId);
+    if (!canEnroll) {
+      return res.status(400).json({ error: reason });
+    }
+
+    // Get term details
+    const term = await prisma.term.findUnique({
+      where: { id: termId }
+    });
+
+    if (!term) return res.status(404).json({ error: 'Term not found' });
+
+    // Create StudentBalance
+    const balance = await createStudentBalance(student.id, termId, student.level);
+
+    // Update student's current term
+    await prisma.student.update({
+      where: { id: student.id },
+      data: { current_term_id: termId }
+    });
+
+    res.json({
+      message: 'Successfully enrolled in term',
+      term: term.name,
+      balance: {
+        total_fees: balance.total_fees,
+        amount_paid: balance.amount_paid,
+        balance: balance.balance,
+        status: balance.status
+      }
+    });
+  } catch (err) {
+    console.error('Term enrollment error:', err);
+    res.status(500).json({ error: 'Failed to enroll in term' });
+  }
+};
+
+// GET /api/students/me/enrollments - Get student's term enrollments
+const getMyEnrollments = async (req, res) => {
+  try {
+    const student = await prisma.student.findUnique({
+      where: { user_id: req.user.id }
+    });
+
+    if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    const enrollments = await prisma.studentBalance.findMany({
+      where: { student_id: student.id },
+      include: {
+        term: true
+      },
+      orderBy: {
+        term: {
+          start_date: 'desc'
+        }
+      }
+    });
+
+    res.json(enrollments);
+  } catch (err) {
+    console.error('Get enrollments error:', err);
+    res.status(500).json({ error: 'Failed to fetch enrollments' });
+  }
+};
+
+// POST /api/students/:id/term/:termId - Admin manual term assignment
+const assignStudentTerm = async (req, res) => {
+  try {
+    const { id: studentId, termId } = req.params;
+    
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { course: true }
+    });
+
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    const term = await prisma.term.findUnique({
+      where: { id: termId }
+    });
+
+    if (!term) return res.status(404).json({ error: 'Term not found' });
+
+    // Create or update StudentBalance
+    const balance = await createStudentBalance(studentId, termId, student.level);
+
+    // Update student's current term
+    await prisma.student.update({
+      where: { id: studentId },
+      data: { current_term_id: termId }
+    });
+
+    res.json({
+      message: 'Student term assigned successfully',
+      student: student.admission_no,
+      term: term.name,
+      balance: {
+        total_fees: balance.total_fees,
+        amount_paid: balance.amount_paid,
+        balance: balance.balance,
+        status: balance.status
+      }
+    });
+  } catch (err) {
+    console.error('Term assignment error:', err);
+    res.status(500).json({ error: 'Failed to assign term' });
+  }
+};
+
+module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm, getMyEnrollments, assignStudentTerm };

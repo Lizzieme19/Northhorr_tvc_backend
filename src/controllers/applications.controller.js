@@ -5,6 +5,7 @@ const { Readable } = require('stream');
 const { v4: uuidv4 } = require('uuid');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const { sendAdmissionConfirmation } = require('../services/emailService');
+const { getInitialTermForIntake, createStudentBalance } = require('../utils/termHelper');
 
 // Generate unique application number
 const generateAppNo = () => {
@@ -239,7 +240,10 @@ const updateApplicationStatus = async (req, res) => {
       // Get month shortcode for student record
       const monthShortcode = getMonthShortcode(studentIntake);
 
-      await prisma.student.create({
+      // Get initial term based on intake
+      const initialTerm = await getInitialTermForIntake(studentIntake, studentYear);
+
+      const student = await prisma.student.create({
         data: {
           admission_no: admissionNo,
           user_id: user.id,
@@ -250,6 +254,7 @@ const updateApplicationStatus = async (req, res) => {
           intake: studentIntake,
           year: studentYear,
           admission_month_shortcode: monthShortcode,
+          current_term_id: initialTerm.id,
           // Copy ID copies from application to student
           id_copy_front_url: application.id_copy_front_url,
           id_copy_back_url: application.id_copy_back_url,
@@ -258,6 +263,9 @@ const updateApplicationStatus = async (req, res) => {
           status: 'ACTIVE',
         },
       });
+
+      // Create StudentBalance for the initial term
+      await createStudentBalance(student.id, initialTerm.id, levelStr);
 
       // Send admission confirmation email
       let courseName = 'N/A';

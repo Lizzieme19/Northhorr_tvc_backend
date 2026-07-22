@@ -448,6 +448,124 @@ const getStudentEnrollments = async (req, res) => {
   }
 };
 
+// Get billing dashboard data for Finance role
+const getBillingDashboard = async (req, res) => {
+  try {
+    const { termId, status, page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = {};
+    if (termId) where.term_id = termId;
+    if (status) where.status = status;
+
+    const [balances, total, summary] = await Promise.all([
+      prisma.studentBalance.findMany({
+        where,
+        include: {
+          student: {
+            include: {
+              application: true,
+              course: true,
+              department: true,
+            },
+          },
+          term: true,
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.studentBalance.count({ where }),
+      prisma.studentBalance.groupBy({
+        by: ['status'],
+        _sum: {
+          total_fees: true,
+          amount_paid: true,
+          balance: true,
+        },
+        _count: true,
+      }),
+    ]);
+
+    const totalFees = summary.reduce((sum, s) => sum + (s._sum.total_fees || 0), 0);
+    const totalPaid = summary.reduce((sum, s) => sum + (s._sum.amount_paid || 0), 0);
+    const totalBalance = summary.reduce((sum, s) => sum + (s._sum.balance || 0), 0);
+
+    res.json({
+      balances,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+      summary: {
+        totalFees,
+        totalPaid,
+        totalBalance,
+        byStatus: summary,
+      },
+    });
+  } catch (err) {
+    console.error('Get billing dashboard error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// Get billing report by term
+const getBillingReport = async (req, res) => {
+  try {
+    const { termId } = req.params;
+
+    const balances = await prisma.studentBalance.findMany({
+      where: { term_id: termId },
+      include: {
+        student: {
+          include: {
+            application: true,
+            course: true,
+            department: true,
+          },
+        },
+        term: true,
+      },
+      orderBy: { student: { admission_no: 'asc' } },
+    });
+
+    const summary = await prisma.studentBalance.groupBy({
+      by: ['status'],
+      where: { term_id: termId },
+      _sum: {
+        total_fees: true,
+        amount_paid: true,
+        balance: true,
+      },
+      _count: true,
+    });
+
+    const totalFees = summary.reduce((sum, s) => sum + (s._sum.total_fees || 0), 0);
+    const totalPaid = summary.reduce((sum, s) => sum + (s._sum.amount_paid || 0), 0);
+    const totalBalance = summary.reduce((sum, s) => sum + (s._sum.balance || 0), 0);
+    const totalStudents = balances.length;
+
+    res.json({
+      term: balances[0]?.term,
+      summary: {
+        totalStudents,
+        totalFees,
+        totalPaid,
+        totalBalance,
+        collectionRate: totalFees > 0 ? (totalPaid / totalFees) * 100 : 0,
+        byStatus: summary,
+      },
+      balances,
+    });
+  } catch (err) {
+    console.error('Get billing report error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
 module.exports = {
   calculateTermFees,
   enrollStudentInTerm,
@@ -457,4 +575,6 @@ module.exports = {
   getStudentProgression,
   studentSelfEnroll,
   getStudentEnrollments,
+  getBillingDashboard,
+  getBillingReport,
 };

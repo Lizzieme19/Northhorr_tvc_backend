@@ -8,6 +8,8 @@ const {
   getStudentProgression,
   studentSelfEnroll,
   getStudentEnrollments,
+  getBillingDashboard,
+  getBillingReport,
 } = require('../controllers/fee.controller');
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
@@ -192,5 +194,56 @@ router.post('/terms/:termId/enroll', authenticate, requireRoles('STUDENT'), stud
  *         description: Student enrollments retrieved
  */
 router.get('/students/me/enrollments', authenticate, requireRoles('STUDENT'), getStudentEnrollments);
+
+/**
+ * @swagger
+ * /api/fees/billing/dashboard:
+ *   get:
+ *     summary: Get billing dashboard data (Finance only)
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: termId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Billing dashboard data
+ */
+router.get('/billing/dashboard', authenticate, requireRoles('ADMIN', 'FINANCE'), getBillingDashboard);
+
+/**
+ * @swagger
+ * /api/fees/billing/report/{termId}:
+ *   get:
+ *     summary: Get billing report by term (Finance only)
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: termId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Billing report
+ */
+router.get('/billing/report/:termId', authenticate, requireRoles('ADMIN', 'FINANCE'), getBillingReport);
 
 module.exports = router;
