@@ -238,18 +238,26 @@ const getMe = async (req, res) => {
       where: { id: req.user.id },
       select: {
         id: true, email: true, role: true, created_at: true,
-        student: {
-          select: {
-            id: true, admission_no: true, level: true, intake: true, year: true,
-            photo_url: true, status: true,
-            course: { select: { id: true, name: true } },
-            department: { select: { id: true, name: true, slug: true } },
-          },
-        },
       },
     });
-    res.json(user);
+
+    // Only fetch student data if user is a student
+    let studentData = null;
+    if (user.role === 'STUDENT') {
+      studentData = await prisma.student.findUnique({
+        where: { user_id: user.id },
+        select: {
+          id: true, admission_no: true, level: true, intake: true, year: true,
+          photo_url: true, status: true,
+          course: { select: { id: true, name: true } },
+          department: { select: { id: true, name: true, slug: true } },
+        },
+      });
+    }
+
+    res.json({ ...user, student: studentData });
   } catch (err) {
+    console.error('Get me error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -278,15 +286,6 @@ const getAllUsers = async (req, res) => {
           is_active: true,
           must_change_password: true,
           created_at: true,
-          student: {
-            select: {
-              id: true,
-              admission_no: true,
-              status: true,
-              course: { select: { name: true } },
-              department: { select: { name: true } },
-            },
-          },
         },
         orderBy: { created_at: 'desc' },
         skip,
@@ -295,8 +294,28 @@ const getAllUsers = async (req, res) => {
       prisma.user.count({ where }),
     ]);
 
+    // Fetch student data separately for student users
+    const usersWithStudentData = await Promise.all(
+      users.map(async (user) => {
+        if (user.role === 'STUDENT') {
+          const student = await prisma.student.findUnique({
+            where: { user_id: user.id },
+            select: {
+              id: true,
+              admission_no: true,
+              status: true,
+              course: { select: { name: true } },
+              department: { select: { name: true } },
+            },
+          });
+          return { ...user, student };
+        }
+        return { ...user, student: null };
+      })
+    );
+
     res.json({
-      users,
+      users: usersWithStudentData,
       pagination: {
         total,
         page: parseInt(page),
