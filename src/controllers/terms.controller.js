@@ -92,7 +92,7 @@ const getTermById = async (req, res) => {
 // POST /api/terms
 const createTerm = async (req, res) => {
   try {
-    const { name, start_date, end_date, academic_year, is_active } = req.body;
+    const { name, start_date, end_date, academic_year, intake, term_cost, is_active } = req.body;
 
     if (!name || !start_date || !end_date || !academic_year) {
       return res.status(400).json({ error: 'name, start_date, end_date, and academic_year are required' });
@@ -104,6 +104,8 @@ const createTerm = async (req, res) => {
         start_date: new Date(start_date),
         end_date: new Date(end_date),
         academic_year,
+        intake: intake || null,
+        term_cost: term_cost || 0,
         is_active: is_active !== undefined ? is_active : true,
       },
     });
@@ -118,7 +120,7 @@ const createTerm = async (req, res) => {
 // PATCH /api/terms/:id
 const updateTerm = async (req, res) => {
   try {
-    const { name, start_date, end_date, academic_year, is_active } = req.body;
+    const { name, start_date, end_date, academic_year, intake, term_cost, is_active } = req.body;
 
     const term = await prisma.term.update({
       where: { id: req.params.id },
@@ -127,6 +129,8 @@ const updateTerm = async (req, res) => {
         ...(start_date && { start_date: new Date(start_date) }),
         ...(end_date && { end_date: new Date(end_date) }),
         ...(academic_year && { academic_year }),
+        ...(intake !== undefined && { intake: intake || null }),
+        ...(term_cost !== undefined && { term_cost: term_cost || 0 }),
         ...(is_active !== undefined && { is_active }),
       },
     });
