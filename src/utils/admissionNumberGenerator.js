@@ -3,9 +3,9 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 /**
- * Generate admission number in format: DEPT_SHORTCODE/LEVEL/MONTH_SHORTCODE/YEAR/INCREMENTAL_NUMBER
- * Example: ECS/L3/M/2026/001
- * 
+ * Generate admission number in format: DEPT_SHORTCODE/LEVEL/MONTH_SHORTCODE/INCREMENTAL_NUMBER/YEAR
+ * Example: ECS/L3/M/001/2026
+ *
  * @param {string} departmentId - Department ID
  * @param {string} level - Student level (e.g., "L3", "L4", "L5")
  * @param {string} intakeMonth - Intake month (JANUARY, MAY, SEPTEMBER)
@@ -55,7 +55,8 @@ async function generateAdmissionNumber(departmentId, level, intakeMonth, year) {
     if (lastStudent && lastStudent.admission_no) {
       const parts = lastStudent.admission_no.split('/');
       if (parts.length >= 5) {
-        const lastNumber = parseInt(parts[4], 10);
+        // Format is now DEPT/LEVEL/MONTH/NUM/YEAR, so number is at index 3
+        const lastNumber = parseInt(parts[3], 10);
         if (!isNaN(lastNumber)) {
           nextNumber = lastNumber + 1;
         }
@@ -65,8 +66,8 @@ async function generateAdmissionNumber(departmentId, level, intakeMonth, year) {
     // Format the number with leading zeros (3 digits)
     const formattedNumber = nextNumber.toString().padStart(3, '0');
 
-    // Construct admission number: DEPT/LEVEL/MONTH/YEAR/NUM
-    const admissionNo = `${department.shortcode}/${level}/${monthShortcode}/${year}/${formattedNumber}`;
+    // Construct admission number: DEPT/LEVEL/MONTH/NUM/YEAR
+    const admissionNo = `${department.shortcode}/${level}/${monthShortcode}/${formattedNumber}/${year}`;
 
     return admissionNo;
   } catch (error) {
@@ -95,8 +96,8 @@ function getMonthShortcode(intake) {
  * @returns {boolean} True if valid format
  */
 function validateAdmissionNumberFormat(admissionNo) {
-  // Format: DEPT/LEVEL/MONTH/YEAR/NUM
-  const regex = /^[A-Z]{2,4}\/L\d\/[JMS]\/\d{4}\/\d{3}$/;
+  // Format: DEPT/LEVEL/MONTH/NUM/YEAR
+  const regex = /^[A-Z]{2,4}\/L\d\/[JMS]\/\d{3}\/\d{4}$/;
   return regex.test(admissionNo);
 }
 
@@ -115,8 +116,8 @@ function parseAdmissionNumber(admissionNo) {
     departmentShortcode: parts[0],
     level: parts[1],
     monthShortcode: parts[2],
-    year: parseInt(parts[3], 10),
-    number: parseInt(parts[4], 10)
+    number: parseInt(parts[3], 10),
+    year: parseInt(parts[4], 10)
   };
 }
 
