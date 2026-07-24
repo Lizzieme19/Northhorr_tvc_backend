@@ -112,6 +112,8 @@ const createStaff = async (req, res) => {
   try {
     const {
       user_id,
+      email,
+      password,
       employee_number,
       designation_id,
       department_id,
@@ -137,9 +139,26 @@ const createStaff = async (req, res) => {
     // Generate employee number if not provided
     const empNumber = employee_number || `STF${Date.now().toString().slice(-6)}`;
 
+    let userId = user_id;
+
+    // Create User account if user_id not provided but email and password are
+    if (!userId && email && password) {
+      const bcrypt = require('bcrypt');
+      const hashed = await bcrypt.hash(password, 12);
+      const user = await prisma.user.create({
+        data: { email, password: hashed, role: 'STAFF' },
+        select: { id: true },
+      });
+      userId = user.id;
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: 'user_id or email/password is required' });
+    }
+
     const staff = await prisma.staff.create({
       data: {
-        user_id,
+        user_id: userId,
         employee_number: empNumber,
         designation_id,
         department_id,
@@ -177,7 +196,7 @@ const createStaff = async (req, res) => {
     res.status(201).json(staff);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: err.message || 'Server error' });
   }
 };
 
