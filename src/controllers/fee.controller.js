@@ -316,13 +316,7 @@ const getStudentFeeSummary = async (req, res) => {
       where: { id: studentId },
       include: {
         student_balances: {
-          include: { 
-            term: true,
-            fee_records: {
-              include: { feeType: true },
-              orderBy: { paid_at: 'desc' }
-            }
-          },
+          include: { term: true },
           orderBy: { created_at: 'desc' },
         },
         fee_records: {
@@ -340,6 +334,15 @@ const getStudentFeeSummary = async (req, res) => {
     const totalPaid = student.student_balances.reduce((sum, b) => sum + b.amount_paid, 0);
     const totalFees = student.student_balances.reduce((sum, b) => sum + b.total_fees, 0);
 
+    // Group fee records by term_id
+    const feeRecordsByTerm = {};
+    student.fee_records.forEach(record => {
+      if (!feeRecordsByTerm[record.term_id]) {
+        feeRecordsByTerm[record.term_id] = [];
+      }
+      feeRecordsByTerm[record.term_id].push(record);
+    });
+
     // Build per-term breakdown
     const termBreakdown = student.student_balances.map(balance => ({
       term: {
@@ -354,8 +357,8 @@ const getStudentFeeSummary = async (req, res) => {
       amount_paid: balance.amount_paid,
       balance: balance.balance,
       status: balance.status,
-      payment_count: balance.fee_records?.length || 0,
-      payments: balance.fee_records || [],
+      payment_count: feeRecordsByTerm[balance.term_id]?.length || 0,
+      payments: feeRecordsByTerm[balance.term_id] || [],
     }));
 
     res.json({
