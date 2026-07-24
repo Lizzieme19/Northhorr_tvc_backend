@@ -224,6 +224,33 @@ const createStaffAccount = async (req, res) => {
       });
     }
 
+    // Create Staff record for STAFF role users
+    if (role === 'STAFF') {
+      const empNumber = `STF${Date.now().toString().slice(-6)}`;
+      const staff = await prisma.staff.create({
+        data: {
+          user_id: user.id,
+          employee_number: empNumber,
+          first_name: email.split('@')[0], // Use email prefix as placeholder name
+          last_name: 'Staff',
+          gender: 'Other',
+          date_of_birth: new Date('1990-01-01'),
+          employment_type: 'FULL_TIME',
+          date_hired: new Date(),
+        },
+      });
+
+      // Initialize leave balances for the current year
+      const currentYear = new Date().getFullYear();
+      await prisma.leaveBalance.createMany({
+        data: [
+          { staff_id: staff.id, leave_type: 'ANNUAL', year: currentYear, total_days: 21 },
+          { staff_id: staff.id, leave_type: 'SICK', year: currentYear, total_days: 14 },
+          { staff_id: staff.id, leave_type: 'COMPASSIONATE', year: currentYear, total_days: 7 },
+        ],
+      });
+    }
+
     res.status(201).json({ message: 'Staff account created', user });
   } catch (err) {
     console.error(err);
