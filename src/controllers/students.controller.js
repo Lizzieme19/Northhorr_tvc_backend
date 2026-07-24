@@ -689,6 +689,8 @@ const assignStudentTerm = async (req, res) => {
 
     if (!student) return res.status(404).json({ error: 'Student not found' });
 
+    if (!student.course) return res.status(400).json({ error: 'Student has no course assigned' });
+
     const term = await prisma.term.findUnique({
       where: { id: termId }
     });
@@ -717,7 +719,7 @@ const assignStudentTerm = async (req, res) => {
     });
   } catch (err) {
     console.error('Term assignment error:', err);
-    res.status(500).json({ error: 'Failed to assign term' });
+    res.status(500).json({ error: 'Failed to assign term', details: err.message });
   }
 };
 
