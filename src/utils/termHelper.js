@@ -110,17 +110,23 @@ async function calculateStudentFees(courseId, level, termId) {
 
   // Calculate total
   let totalFees = 0;
+  let termCostAdded = false; // Track if term cost has been added
+  
   for (const feeType of feeTypes) {
     // For term-based fees, use term cost if set, otherwise use fee type amount
     if (feeType.term_based) {
-      const term = await prisma.term.findUnique({
-        where: { id: termId }
-      });
-      if (term && term.term_cost > 0) {
-        totalFees += term.term_cost;
-      } else {
-        totalFees += feeType.amount;
+      if (!termCostAdded) {
+        const term = await prisma.term.findUnique({
+          where: { id: termId }
+        });
+        if (term && term.term_cost > 0) {
+          totalFees += term.term_cost;
+          termCostAdded = true; // Only add term cost once
+        } else {
+          totalFees += feeType.amount;
+        }
       }
+      // Skip other term-based fees after term_cost is added
     } else {
       // One-time fees (admission, student ID, etc.)
       totalFees += feeType.amount;
@@ -197,7 +203,7 @@ async function canEnrollInTerm(studentId, termId) {
   // Check if already enrolled
   const existingBalance = await prisma.studentBalance.findUnique({
     where: {
-      student_id_term_id: {
+      student_term: {
         student_id: studentId,
         term_id: termId
       }
