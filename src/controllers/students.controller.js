@@ -723,4 +723,83 @@ const assignStudentTerm = async (req, res) => {
   }
 };
 
-module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm, getMyEnrollments, assignStudentTerm };
+// POST /api/students/bulk-assign-term - Bulk assign students to a term
+const bulkAssignTerm = async (req, res) => {
+  try {
+    const { studentIds, termId } = req.body;
+
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ error: 'studentIds array is required' });
+    }
+    if (!termId) {
+      return res.status(400).json({ error: 'termId is required' });
+    }
+
+    const term = await prisma.term.findUnique({
+      where: { id: termId }
+    });
+
+    if (!term) return res.status(404).json({ error: 'Term not found' });
+
+    const results = [];
+    const errors = [];
+
+    for (const studentId of studentIds) {
+      try {
+        const student = await prisma.student.findUnique({
+          where: { id: studentId },
+          include: { course: true }
+        });
+
+        if (!student) {
+          errors.push({ studentId, error: 'Student not found' });
+          continue;
+        }
+
+        if (!student.course) {
+          errors.push({ studentId, admission_no: student.admission_no, error: 'Student has no course assigned' });
+          continue;
+        }
+
+        // Create or update StudentBalance
+        const balance = await createStudentBalance(studentId, termId, student.level);
+
+        // Update student's current term
+        await prisma.student.update({
+          where: { id: studentId },
+          data: { current_term_id: termId }
+        });
+
+        results.push({
+          studentId,
+          admission_no: student.admission_no,
+          term: term.name,
+          balance: {
+            total_fees: balance.total_fees,
+            amount_paid: balance.amount_paid,
+            balance: balance.balance,
+            status: balance.status
+          }
+        });
+      } catch (err) {
+        errors.push({ studentId, error: err.message });
+      }
+    }
+
+    res.json({
+      message: `Bulk term assignment completed`,
+      summary: {
+        total: studentIds.length,
+        successful: results.length,
+        failed: errors.length
+      },
+      results,
+      errors
+    });
+  } catch (err) {
+    console.error('Bulk term assignment error:', err);
+    res.status(500).json({ error: 'Failed to perform bulk term assignment', details: err.message });
+  }
+};
+
+module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm, getMyEnrollments, assignStudentTerm, bulkAssignTerm };

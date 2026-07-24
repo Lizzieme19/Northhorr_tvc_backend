@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   enrollStudentInTerm,
   recordFeePayment,
+  bulkRecordFeePayment,
   getStudentFeeSummary,
   promoteStudent,
   getStudentProgression,
@@ -88,6 +89,42 @@ router.post('/students/:studentId/terms/:termId/payment', authenticate, requireR
 
 /**
  * @swagger
+ * /api/fees/bulk-record-payment:
+ *   post:
+ *     summary: Bulk record fee payments for multiple students (Admin/Finance only)
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               payments:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     studentId:
+ *                       type: string
+ *                     termId:
+ *                       type: string
+ *                     amount:
+ *                       type: number
+ *                     fee_type_id:
+ *                       type: string
+ *                     notes:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Bulk payments recorded successfully
+ */
+router.post('/bulk-record-payment', authenticate, requireRoles('ADMIN', 'FINANCE'), bulkRecordFeePayment);
+
+/**
+ * @swagger
  * /api/fees/students/{studentId}/summary:
  *   get:
  *     summary: Get student fee summary
@@ -104,7 +141,7 @@ router.post('/students/:studentId/terms/:termId/payment', authenticate, requireR
  *       200:
  *         description: Fee summary retrieved
  */
-router.get('/students/:studentId/summary', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentFeeSummary);
+router.get('/students/:studentId/summary', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), getStudentFeeSummary);
 
 /**
  * @swagger

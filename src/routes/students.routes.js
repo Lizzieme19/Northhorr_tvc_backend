@@ -19,6 +19,7 @@ const {
   enrollInTerm,
   getMyEnrollments,
   assignStudentTerm,
+  bulkAssignTerm,
 } = require('../controllers/students.controller');
 
 /**
@@ -395,5 +396,32 @@ router.post('/me/enroll/:termId', authenticate, requireRoles('STUDENT'), require
  *         description: Term assigned successfully
  */
 router.post('/:id/term/:termId', authenticate, requireRoles('ADMIN'), assignStudentTerm);
+
+/**
+ * @swagger
+ * /api/students/bulk-assign-term:
+ *   post:
+ *     summary: Bulk assign students to a term (Admin/Finance/Dept Head only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               studentIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               termId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Bulk term assignment completed
+ */
+router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), bulkAssignTerm);
 
 module.exports = router;

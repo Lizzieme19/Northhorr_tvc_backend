@@ -217,6 +217,96 @@ const recordFeePayment = async (req, res) => {
   }
 };
 
+// Bulk record fee payments for multiple students
+const bulkRecordFeePayment = async (req, res) => {
+  try {
+    const { payments } = req.body; // Array of { studentId, termId, amount, fee_type_id, notes }
+
+    if (!payments || !Array.isArray(payments) || payments.length === 0) {
+      return res.status(400).json({ error: 'payments array is required' });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const payment of payments) {
+      try {
+        const { studentId, termId, amount, fee_type_id, notes } = payment;
+
+        if (!studentId || !termId || !amount || amount <= 0) {
+          errors.push({ payment, error: 'Invalid payment data' });
+          continue;
+        }
+
+        const studentBalance = await prisma.studentBalance.findUnique({
+          where: {
+            student_term: {
+              student_id: studentId,
+              term_id: termId,
+            },
+          },
+        });
+
+        if (!studentBalance) {
+          errors.push({ studentId, termId, error: 'Student balance record not found' });
+          continue;
+        }
+
+        // Create fee record
+        const feeRecord = await prisma.feeRecord.create({
+          data: {
+            student_id: studentId,
+            term_id: termId,
+            fee_type_id: fee_type_id || null,
+            amount,
+            received_by: req.user.id,
+            notes,
+          },
+        });
+
+        // Update student balance
+        const newAmountPaid = studentBalance.amount_paid + amount;
+        const newBalance = studentBalance.balance - amount;
+        const newStatus = newBalance <= 0 ? 'PAID' : (newAmountPaid > 0 ? 'PARTIAL' : 'PENDING');
+
+        const updatedBalance = await prisma.studentBalance.update({
+          where: { id: studentBalance.id },
+          data: {
+            amount_paid: newAmountPaid,
+            balance: Math.max(0, newBalance),
+            status: newStatus,
+          },
+        });
+
+        results.push({
+          studentId,
+          termId,
+          amount,
+          feeRecordId: feeRecord.id,
+          newBalance: updatedBalance.balance,
+          status: updatedBalance.status,
+        });
+      } catch (err) {
+        errors.push({ payment, error: err.message });
+      }
+    }
+
+    res.json({
+      message: 'Bulk fee payments recorded',
+      summary: {
+        total: payments.length,
+        successful: results.length,
+        failed: errors.length,
+      },
+      results,
+      errors,
+    });
+  } catch (err) {
+    console.error('Bulk record payment error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 // Get student fee summary
 const getStudentFeeSummary = async (req, res) => {
   try {
@@ -570,6 +660,7 @@ module.exports = {
   calculateTermFees,
   enrollStudentInTerm,
   recordFeePayment,
+  bulkRecordFeePayment,
   getStudentFeeSummary,
   promoteStudent,
   getStudentProgression,
