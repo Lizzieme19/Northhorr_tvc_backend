@@ -388,6 +388,13 @@ const promoteStudent = async (req, res) => {
     const { studentId } = req.params;
     const { toLevel, termId, notes, forcePromote = false } = req.body;
 
+    if (!toLevel) {
+      return res.status(400).json({ error: 'toLevel is required' });
+    }
+    if (!termId) {
+      return res.status(400).json({ error: 'termId is required' });
+    }
+
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: {
@@ -422,7 +429,7 @@ const promoteStudent = async (req, res) => {
       data: {
         student_id: studentId,
         from_level: student.level,
-        to_level,
+        to_level: toLevel,
         term_id: termId,
         academic_year: term.academic_year,
         promoted_by: req.user.id,
@@ -432,7 +439,7 @@ const promoteStudent = async (req, res) => {
     });
 
     // Update student level
-    const updatedStudent = await prisma.student.update({
+    await prisma.student.update({
       where: { id: studentId },
       data: { level: toLevel },
     });
@@ -440,11 +447,10 @@ const promoteStudent = async (req, res) => {
     res.json({
       message: 'Student promoted successfully',
       progression,
-      student: updatedStudent,
     });
   } catch (err) {
     console.error('Promote student error:', err);
-    res.status(500).json({ error: err.message || 'Server error' });
+    res.status(500).json({ error: err.message || 'Failed to promote student' });
   }
 };
 
