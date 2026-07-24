@@ -153,7 +153,7 @@ async function createStudentBalance(studentId, termId, level) {
   // Check if balance already exists
   let balance = await prisma.studentBalance.findUnique({
     where: {
-      student_id_term_id: {
+      student_term: {
         student_id: studentId,
         term_id: termId
       }
