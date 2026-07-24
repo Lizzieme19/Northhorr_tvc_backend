@@ -26,7 +26,7 @@ const getAllTerms = async (req, res) => {
       orderBy: [{ academic_year: 'desc' }, { start_date: 'desc' }],
     });
 
-    res.json({ terms });
+    res.json(terms);
   } catch (err) {
     console.error('Get terms error:', err);
     res.status(500).json({ error: 'Server error' });
