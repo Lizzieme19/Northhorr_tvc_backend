@@ -11,6 +11,7 @@ const studentIncludes = {
   user: { select: { id: true, email: true, role: true } },
   course: { select: { id: true, name: true, levels: true } },
   department: { select: { id: true, name: true, slug: true } },
+  current_term: { select: { id: true, name: true, academic_year: true } },
   application: {
     select: {
       id: true, application_no: true, type: true, surname: true, other_names: true,
