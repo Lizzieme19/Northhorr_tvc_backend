@@ -312,6 +312,17 @@ const getStudentFeeSummary = async (req, res) => {
   try {
     const { studentId } = req.params;
 
+    // Students can only view their own fee summary
+    if (req.user.role === 'STUDENT') {
+      const student = await prisma.student.findUnique({
+        where: { user_id: req.user.id },
+        select: { id: true }
+      });
+      if (!student || student.id !== studentId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: {
@@ -395,6 +406,21 @@ const promoteStudent = async (req, res) => {
       return res.status(400).json({ error: 'termId is required' });
     }
 
+    // Dept head can only promote students in their department
+    if (req.user.role === 'DEPT_HEAD') {
+      const dept = await prisma.department.findFirst({ where: { head_user_id: req.user.id } });
+      if (!dept) {
+        return res.status(403).json({ error: 'You are not a department head' });
+      }
+      const student = await prisma.student.findUnique({
+        where: { id: studentId },
+        select: { department_id: true }
+      });
+      if (!student || student.department_id !== dept.id) {
+        return res.status(403).json({ error: 'You can only promote students in your department' });
+      }
+    }
+
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: {
@@ -458,6 +484,17 @@ const promoteStudent = async (req, res) => {
 const getStudentProgression = async (req, res) => {
   try {
     const { studentId } = req.params;
+
+    // Students can only view their own progression history
+    if (req.user.role === 'STUDENT') {
+      const student = await prisma.student.findUnique({
+        where: { user_id: req.user.id },
+        select: { id: true }
+      });
+      if (!student || student.id !== studentId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
 
     const progressions = await prisma.studentProgression.findMany({
       where: { student_id: studentId },

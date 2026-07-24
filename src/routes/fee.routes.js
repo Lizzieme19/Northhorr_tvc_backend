@@ -141,7 +141,7 @@ router.post('/bulk-record-payment', authenticate, requireRoles('ADMIN', 'FINANCE
  *       200:
  *         description: Fee summary retrieved
  */
-router.get('/students/:studentId/summary', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), getStudentFeeSummary);
+router.get('/students/:studentId/summary', authenticate, getStudentFeeSummary);
 
 /**
  * @swagger
@@ -176,7 +176,7 @@ router.get('/students/:studentId/summary', authenticate, requireRoles('ADMIN', '
  *       200:
  *         description: Student promoted successfully
  */
-router.post('/students/:studentId/promote', authenticate, requireRoles('ADMIN'), promoteStudent);
+router.post('/students/:studentId/promote', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), promoteStudent);
 
 /**
  * @swagger
@@ -196,7 +196,7 @@ router.post('/students/:studentId/promote', authenticate, requireRoles('ADMIN'),
  *       200:
  *         description: Progression history retrieved
  */
-router.get('/students/:studentId/progression', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentProgression);
+router.get('/students/:studentId/progression', authenticate, getStudentProgression);
 
 /**
  * @swagger

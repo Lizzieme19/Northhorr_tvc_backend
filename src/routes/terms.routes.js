@@ -55,7 +55,7 @@ router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'STUDENT'), getAl
  *       200:
  *         description: Term details
  */
-router.get('/:id', authenticate, requireRoles('ADMIN', 'FINANCE'), getTermById);
+router.get('/:id', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), getTermById);
 
 /**
  * @swagger
