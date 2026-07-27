@@ -332,10 +332,22 @@ const syncMissingStaffRecords = async (req, res) => {
           
           const empNumber = `STF${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5)}`;
           
+          // Get default designation and department
+          const defaultDesignation = await prisma.designation.findFirst();
+          const defaultDepartment = await prisma.department.findFirst();
+          
+          if (!defaultDesignation || !defaultDepartment) {
+            throw new Error('Default designation or department not found. Please create at least one designation and department first.');
+          }
+          
           const staff = await prisma.staff.create({
             data: {
-              user_id: user.id,
+              user: {
+                connect: { id: user.id }
+              },
               employee_number: empNumber,
+              designation_id: defaultDesignation.id,
+              department_id: defaultDepartment.id,
               first_name: user.email.split('@')[0],
               last_name: 'Staff',
               gender: 'Other',
