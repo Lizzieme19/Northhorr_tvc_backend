@@ -345,9 +345,13 @@ const syncMissingStaffRecords = async (req, res) => {
               user: {
                 connect: { id: user.id }
               },
+              designation: {
+                connect: { id: defaultDesignation.id }
+              },
+              department: {
+                connect: { id: defaultDepartment.id }
+              },
               employee_number: empNumber,
-              designation_id: defaultDesignation.id,
-              department_id: defaultDepartment.id,
               first_name: user.email.split('@')[0],
               last_name: 'Staff',
               gender: 'Other',
