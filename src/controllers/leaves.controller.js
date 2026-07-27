@@ -352,8 +352,14 @@ const getLeaveStatistics = async (req, res) => {
     const staffIds = byDepartment.map(d => d.staff_id);
     const staffWithDepartments = await prisma.staff.findMany({
       where: { id: { in: staffIds } },
-      include: { department: { select: { name: true } } },
-      select: { id: true, department: true },
+      select: {
+        id: true,
+        department: {
+          select: {
+            name: true
+          }
+        }
+      },
     });
 
     const departmentMap = staffWithDepartments.reduce((acc, staff) => {
