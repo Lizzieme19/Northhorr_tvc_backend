@@ -340,6 +340,7 @@ const syncMissingStaffRecords = async (req, res) => {
               last_name: 'Staff',
               gender: 'Other',
               date_of_birth: new Date('1990-01-01'),
+              phone: '0000000000',
               employment_type: 'FULL_TIME',
               date_hired: new Date(),
             },
