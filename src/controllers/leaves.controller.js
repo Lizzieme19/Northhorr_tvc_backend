@@ -299,6 +299,102 @@ const getMyLeaveBalance = async (req, res) => {
   }
 };
 
+// GET /api/leaves/stats - Get leave statistics (HR, ADMIN)
+const getLeaveStatistics = async (req, res) => {
+  try {
+    const { year } = req.query;
+    const currentYear = year ? parseInt(year) : new Date().getFullYear();
+
+    const [
+      totalRequests,
+      pendingRequests,
+      approvedRequests,
+      rejectedRequests,
+      cancelledRequests,
+      totalLeaveDays,
+      approvedLeaveDays,
+      byLeaveType,
+      byDepartment,
+      currentlyOnLeave,
+    ] = await Promise.all([
+      prisma.leaveRequest.count(),
+      prisma.leaveRequest.count({ where: { status: 'PENDING' } }),
+      prisma.leaveRequest.count({ where: { status: 'APPROVED' } }),
+      prisma.leaveRequest.count({ where: { status: 'REJECTED' } }),
+      prisma.leaveRequest.count({ where: { status: 'CANCELLED' } }),
+      prisma.leaveRequest.aggregate({
+        _sum: { total_days: true },
+      }),
+      prisma.leaveRequest.aggregate({
+        _sum: { total_days: true },
+        where: { status: 'APPROVED' },
+      }),
+      prisma.leaveRequest.groupBy({
+        by: ['leave_type'],
+        _count: true,
+        _sum: { total_days: true },
+      }),
+      prisma.leaveRequest.groupBy({
+        by: ['staff_id'],
+        _count: true,
+        _sum: { total_days: true },
+      }),
+      prisma.leaveRequest.count({
+        where: {
+          status: 'APPROVED',
+          start_date: { lte: new Date() },
+          end_date: { gte: new Date() },
+        },
+      }),
+    ]);
+
+    // Get department names for the byDepartment stats
+    const staffIds = byDepartment.map(d => d.staff_id);
+    const staffWithDepartments = await prisma.staff.findMany({
+      where: { id: { in: staffIds } },
+      include: { department: { select: { name: true } } },
+      select: { id: true, department: true },
+    });
+
+    const departmentMap = staffWithDepartments.reduce((acc, staff) => {
+      acc[staff.id] = staff.department?.name || 'Unassigned';
+      return acc;
+    }, {});
+
+    const byDepartmentWithName = byDepartment.map(stat => ({
+      staff_id: stat.staff_id,
+      department: departmentMap[stat.staff_id],
+      request_count: stat._count,
+      total_days: stat._sum.total_days,
+    }));
+
+    res.json({
+      summary: {
+        total_requests: totalRequests,
+        pending: pendingRequests,
+        approved: approvedRequests,
+        rejected: rejectedRequests,
+        cancelled: cancelledRequests,
+        currently_on_leave: currentlyOnLeave,
+      },
+      days: {
+        total_requested: totalLeaveDays._sum.total_days || 0,
+        total_approved: approvedLeaveDays._sum.total_days || 0,
+      },
+      by_leave_type: byLeaveType.map(stat => ({
+        type: stat.leave_type,
+        count: stat._count,
+        total_days: stat._sum.total_days,
+      })),
+      by_department: byDepartmentWithName,
+      year: currentYear,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 module.exports = {
   getLeaveRequests,
   getLeaveRequestById,
@@ -308,4 +404,5 @@ module.exports = {
   cancelLeaveRequest,
   getLeaveBalance,
   getMyLeaveBalance,
+  getLeaveStatistics,
 };

@@ -11,6 +11,7 @@ const {
   cancelLeaveRequest,
   getLeaveBalance,
   getMyLeaveBalance,
+  getLeaveStatistics,
 } = require('../controllers/leaves.controller');
 
 /**
@@ -92,6 +93,26 @@ router.get('/me', authenticate, requireRoles('STAFF'), getMyLeaveRequests);
  *         description: Leave balance details
  */
 router.get('/balance', authenticate, requireRoles('STAFF'), getMyLeaveBalance);
+
+/**
+ * @swagger
+ * /api/leaves/stats:
+ *   get:
+ *     summary: Get leave statistics (Admin/HR only)
+ *     tags: [Staff Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *         description: Filter by year (defaults to current year)
+ *     responses:
+ *       200:
+ *         description: Leave statistics
+ */
+router.get('/stats', authenticate, requireRoles('ADMIN', 'HR'), getLeaveStatistics);
 
 /**
  * @swagger
