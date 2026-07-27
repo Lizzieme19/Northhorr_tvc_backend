@@ -10,6 +10,7 @@ const {
   updateStaff,
   deleteStaff,
   getStaffStats,
+  syncMissingStaffRecords,
 } = require('../controllers/staff.controller');
 
 /**
@@ -102,6 +103,20 @@ router.get('/stats', authenticate, requireRoles('ADMIN', 'HR'), getStaffStats);
  *         description: Staff member created
  */
 router.post('/', authenticate, requireRoles('ADMIN', 'HR'), createStaff);
+
+/**
+ * @swagger
+ * /api/staff/sync-missing:
+ *   post:
+ *     summary: Create missing staff records for STAFF role users (Admin only)
+ *     tags: [Staff Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Staff records synced
+ */
+router.post('/sync-missing', authenticate, requireRoles('ADMIN'), syncMissingStaffRecords);
 
 /**
  * @swagger

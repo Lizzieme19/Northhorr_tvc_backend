@@ -301,6 +301,84 @@ const getStaffStats = async (req, res) => {
   }
 };
 
+// POST /api/staff/sync-missing - Create missing staff records for STAFF role users (Admin only)
+const syncMissingStaffRecords = async (req, res) => {
+  try {
+    console.log('Finding STAFF role users without Staff records...');
+    
+    // Get all users with STAFF role
+    const staffUsers = await prisma.user.findMany({
+      where: { role: 'STAFF', is_active: true },
+      select: { id: true, email: true }
+    });
+
+    console.log(`Found ${staffUsers.length} STAFF role users`);
+
+    const results = {
+      created: 0,
+      skipped: 0,
+      errors: []
+    };
+
+    for (const user of staffUsers) {
+      try {
+        // Check if Staff record exists
+        const existingStaff = await prisma.staff.findUnique({
+          where: { user_id: user.id }
+        });
+
+        if (!existingStaff) {
+          console.log(`Creating Staff record for user: ${user.email}`);
+          
+          const empNumber = `STF${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5)}`;
+          
+          const staff = await prisma.staff.create({
+            data: {
+              user_id: user.id,
+              employee_number: empNumber,
+              first_name: user.email.split('@')[0],
+              last_name: 'Staff',
+              gender: 'Other',
+              date_of_birth: new Date('1990-01-01'),
+              employment_type: 'FULL_TIME',
+              date_hired: new Date(),
+            },
+          });
+
+          console.log(`Created Staff record with ID: ${staff.id}`);
+
+          // Initialize leave balances
+          const currentYear = new Date().getFullYear();
+          await prisma.leaveBalance.createMany({
+            data: [
+              { staff_id: staff.id, leave_type: 'ANNUAL', year: currentYear, total_days: 21 },
+              { staff_id: staff.id, leave_type: 'SICK', year: currentYear, total_days: 14 },
+              { staff_id: staff.id, leave_type: 'COMPASSIONATE', year: currentYear, total_days: 7 },
+            ],
+          });
+
+          console.log(`Initialized leave balances for staff ID: ${staff.id}`);
+          results.created++;
+        } else {
+          console.log(`Staff record already exists for user: ${user.email}`);
+          results.skipped++;
+        }
+      } catch (error) {
+        console.error(`Error processing user ${user.email}:`, error);
+        results.errors.push({ email: user.email, error: error.message });
+      }
+    }
+
+    res.json({
+      message: 'Staff record sync completed',
+      results
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
 module.exports = {
   getStaff,
   getStaffById,
@@ -309,4 +387,5 @@ module.exports = {
   updateStaff,
   deleteStaff,
   getStaffStats,
+  syncMissingStaffRecords,
 };
