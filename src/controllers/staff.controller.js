@@ -343,6 +343,7 @@ const syncMissingStaffRecords = async (req, res) => {
               phone: '0000000000',
               employment_type: 'FULL_TIME',
               date_hired: new Date(),
+              salary: 0,
             },
           });
 
