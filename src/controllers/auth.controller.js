@@ -195,7 +195,7 @@ const changePassword = async (req, res) => {
 // POST /api/auth/create-staff (Admin only)
 const createStaffAccount = async (req, res) => {
   try {
-    const { email, password, role, department_id } = req.body;
+    const { email, password, role, department_id, first_name, last_name } = req.body;
     const allowedRoles = ['ADMIN', 'DEPT_HEAD', 'FINANCE', 'STAFF', 'PROCUREMENT', 'HR'];
 
     if (!email || !password || !role) {
@@ -231,8 +231,8 @@ const createStaffAccount = async (req, res) => {
         data: {
           user_id: user.id,
           employee_number: empNumber,
-          first_name: email.split('@')[0], // Use email prefix as placeholder name
-          last_name: 'Staff',
+          first_name: first_name || email.split('@')[0], // Use provided name or email prefix as fallback
+          last_name: last_name || 'Staff',
           gender: 'Other',
           date_of_birth: new Date('1990-01-01'),
           employment_type: 'FULL_TIME',

@@ -3,8 +3,8 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 /**
- * Generate admission number in format: DEPT_SHORTCODE/LEVEL/MONTH_SHORTCODE/INCREMENTAL_NUMBER/YEAR
- * Example: ECS/L3/M/001/2026
+ * Generate admission number in format: DEPT_SHORTCODE/INTAKE/MONTH_SHORTCODE/LEVEL/INCREMENTAL_NUMBER/YEAR
+ * Example: ECS/SEPTEMBER/S/L3/001/2026
  *
  * @param {string} departmentId - Department ID
  * @param {string} level - Student level (e.g., "L3", "L4", "L5")
@@ -54,9 +54,9 @@ async function generateAdmissionNumber(departmentId, level, intakeMonth, year) {
     let nextNumber = 1;
     if (lastStudent && lastStudent.admission_no) {
       const parts = lastStudent.admission_no.split('/');
-      if (parts.length >= 5) {
-        // Format is now DEPT/LEVEL/MONTH/NUM/YEAR, so number is at index 3
-        const lastNumber = parseInt(parts[3], 10);
+      if (parts.length >= 6) {
+        // Format is DEPT/INTAKE/MONTH/LEVEL/NUM/YEAR, so number is at index 4
+        const lastNumber = parseInt(parts[4], 10);
         if (!isNaN(lastNumber)) {
           nextNumber = lastNumber + 1;
         }
@@ -66,8 +66,8 @@ async function generateAdmissionNumber(departmentId, level, intakeMonth, year) {
     // Format the number with leading zeros (3 digits)
     const formattedNumber = nextNumber.toString().padStart(3, '0');
 
-    // Construct admission number: DEPT/LEVEL/MONTH/NUM/YEAR
-    const admissionNo = `${department.shortcode}/${level}/${monthShortcode}/${formattedNumber}/${year}`;
+    // Construct admission number: DEPT/INTAKE/MONTH/LEVEL/NUM/YEAR
+    const admissionNo = `${department.shortcode}/${intakeMonth}/${monthShortcode}/${level}/${formattedNumber}/${year}`;
 
     return admissionNo;
   } catch (error) {
@@ -96,8 +96,8 @@ function getMonthShortcode(intake) {
  * @returns {boolean} True if valid format
  */
 function validateAdmissionNumberFormat(admissionNo) {
-  // Format: DEPT/LEVEL/MONTH/NUM/YEAR
-  const regex = /^[A-Z]{2,4}\/L\d\/[JMS]\/\d{3}\/\d{4}$/;
+  // Format: DEPT/INTAKE/MONTH/LEVEL/NUM/YEAR
+  const regex = /^[A-Z]{2,4}\/(JANUARY|MAY|SEPTEMBER)\/[JMS]\/L\d\/\d{3}\/\d{4}$/;
   return regex.test(admissionNo);
 }
 
@@ -114,10 +114,11 @@ function parseAdmissionNumber(admissionNo) {
   const parts = admissionNo.split('/');
   return {
     departmentShortcode: parts[0],
-    level: parts[1],
+    intake: parts[1],
     monthShortcode: parts[2],
-    number: parseInt(parts[3], 10),
-    year: parseInt(parts[4], 10)
+    level: parts[3],
+    number: parseInt(parts[4], 10),
+    year: parseInt(parts[5], 10)
   };
 }
 
