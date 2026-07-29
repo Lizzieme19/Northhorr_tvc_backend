@@ -143,12 +143,13 @@ const createInventoryItem = async (req, res) => {
     });
 
     // Record initial stock movement
-    if (current_stock > 0) {
+    const parsedStock = parseInt(current_stock) || 0;
+    if (parsedStock > 0) {
       await prisma.stockMovement.create({
         data: {
           inventory_item_id: item.id,
           movement_type: 'IN',
-          quantity: current_stock,
+          quantity: parsedStock,
           notes: 'Initial stock',
           performed_by: req.user.id,
         },
