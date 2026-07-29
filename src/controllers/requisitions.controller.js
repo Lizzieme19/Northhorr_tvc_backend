@@ -160,19 +160,23 @@ const submitRequisition = async (req, res) => {
 // PATCH /api/requisitions/:id/approve - Approve or reject requisition
 const approveRequisition = async (req, res) => {
   try {
-    const { status, rejection_reason } = req.body;
+    const body = req.body || {};
+    const { status, rejection_reason } = body;
 
-    if (!['APPROVED', 'REJECTED'].includes(status)) {
+    // Default to APPROVED if status not provided
+    const approvalStatus = status || 'APPROVED';
+
+    if (!['APPROVED', 'REJECTED'].includes(approvalStatus)) {
       return res.status(400).json({ error: 'Status must be APPROVED or REJECTED' });
     }
 
     const requisition = await prisma.purchaseRequisition.update({
       where: { id: req.params.id },
       data: {
-        status,
+        status: approvalStatus,
         approved_by: req.user.id,
         approved_at: new Date(),
-        rejection_reason: status === 'REJECTED' ? rejection_reason : null,
+        rejection_reason: approvalStatus === 'REJECTED' ? rejection_reason : null,
       },
     });
 
