@@ -151,6 +151,35 @@ router.post('/:id/quotations', authenticate, submitQuotation);
 
 /**
  * @swagger
+ * /api/rfqs/{id}/award:
+ *   patch:
+ *     summary: Award RFQ to supplier (Admin/Procurement only)
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               quotation_id:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: RFQ awarded
+ */
+router.patch('/:id/award', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), selectQuotation);
+
+/**
+ * @swagger
  * /api/rfqs/{id}/quotations/{quotationId}/select:
  *   patch:
  *     summary: Select winning quotation (Admin/Procurement only)

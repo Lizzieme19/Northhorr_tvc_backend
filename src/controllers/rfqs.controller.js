@@ -188,6 +188,7 @@ const submitQuotation = async (req, res) => {
 };
 
 // PATCH /api/rfqs/:id/quotations/:quotationId/select - Select winning quotation
+// PATCH /api/rfqs/:id/award - Award RFQ to supplier
 const selectQuotation = async (req, res) => {
   try {
     const rfq = await prisma.rFQ.findUnique({
@@ -197,6 +198,13 @@ const selectQuotation = async (req, res) => {
 
     if (!rfq) return res.status(404).json({ error: 'RFQ not found' });
 
+    // Get quotation ID from either path params or request body
+    const quotationId = req.params.quotationId || req.body.quotation_id;
+    
+    if (!quotationId) {
+      return res.status(400).json({ error: 'Quotation ID is required' });
+    }
+
     // Deselect all quotations
     await prisma.quotation.updateMany({
       where: { rfq_id: req.params.id },
@@ -205,7 +213,7 @@ const selectQuotation = async (req, res) => {
 
     // Select the winning quotation
     const quotation = await prisma.quotation.update({
-      where: { id: req.params.quotationId },
+      where: { id: quotationId },
       data: { is_selected: true },
       include: { supplier: true },
     });
