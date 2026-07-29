@@ -133,7 +133,7 @@ const refresh = async (req, res) => {
     }
 
     // Rotate tokens
-    await prisma.refreshToken.delete({ where: { token: refreshToken } });
+    await prisma.refreshToken.deleteMany({ where: { token: refreshToken } });
     const tokens = generateTokens(user.id, user.role);
 
     await prisma.refreshToken.create({
