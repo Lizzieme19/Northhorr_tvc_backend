@@ -178,8 +178,9 @@ const approveRequisition = async (req, res) => {
 
     res.json(requisition);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Requisition approval error:', err.message);
+    console.error('Error details:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 };
 
