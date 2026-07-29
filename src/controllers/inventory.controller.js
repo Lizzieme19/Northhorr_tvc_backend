@@ -117,7 +117,7 @@ const createInventoryItem = async (req, res) => {
       reorder_level,
       location,
       unit_cost,
-      supplier_id,
+      supplier_id,   
     } = req.body;
 
     if (!item_code || !name) {
