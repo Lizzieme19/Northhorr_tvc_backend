@@ -44,7 +44,7 @@ router.get('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getRequisiti
  * @swagger
  * /api/requisitions:
  *   post:
- *     summary: Create purchase requisition
+ *     summary: Create purchase requisition (DEPT_HEAD, ADMIN, PROCUREMENT)
  *     tags: [Procurement]
  *     security:
  *       - bearerAuth: []
@@ -65,7 +65,7 @@ router.get('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getRequisiti
  *       201:
  *         description: Requisition created
  */
-router.post('/', authenticate, createRequisition);
+router.post('/', authenticate, requireRoles('DEPT_HEAD', 'ADMIN', 'PROCUREMENT'), createRequisition);
 
 /**
  * @swagger
