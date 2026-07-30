@@ -518,7 +518,7 @@ const getStudentProgression = async (req, res) => {
 const studentSelfEnroll = async (req, res) => {
   try {
     const { termId } = req.params;
-    const studentId = req.user.student_id;
+    const studentId = req.user.student?.id;
 
     if (!studentId) {
       return res.status(400).json({ error: 'Student profile not found for this user' });
@@ -591,7 +591,7 @@ const studentSelfEnroll = async (req, res) => {
 // Get student's own enrollments
 const getStudentEnrollments = async (req, res) => {
   try {
-    const studentId = req.user.student_id;
+    const studentId = req.user.student?.id;
 
     if (!studentId) {
       return res.status(400).json({ error: 'Student profile not found for this user' });

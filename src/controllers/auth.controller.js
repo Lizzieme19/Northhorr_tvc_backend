@@ -102,8 +102,7 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         mustChangePassword: user.must_change_password,
-        student_id: studentInfo?.id || null,
-        admissionNo: studentInfo?.admission_no || null,
+        student: studentInfo,
       },
     });
   } catch (err) {
