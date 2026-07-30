@@ -102,7 +102,7 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         mustChangePassword: user.must_change_password,
-        studentId: studentInfo?.id || null,
+        student_id: studentInfo?.id || null,
         admissionNo: studentInfo?.admission_no || null,
       },
     });
@@ -386,7 +386,10 @@ const updateUserStatus = async (req, res) => {
     res.json(updated);
   } catch (err) {
     console.error('Update user status error:', err);
-    res.status(500).json({ error: 'Server error' });
+    if (err.code === 'P2002') {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    res.status(500).json({ error: err.message || 'Server error' });
   }
 };
 

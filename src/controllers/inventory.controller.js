@@ -8,9 +8,6 @@ const getInventory = async (req, res) => {
 
     const where = {};
     if (category) where.category = category;
-    if (reorder_alert === 'true') {
-      where.current_stock = { lte: prisma.inventoryItem.fields.reorder_level };
-    }
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -60,16 +57,16 @@ const getInventory = async (req, res) => {
 const getReorderAlerts = async (req, res) => {
   try {
     const items = await prisma.inventoryItem.findMany({
-      where: {
-        current_stock: { lte: prisma.inventoryItem.fields.reorder_level },
-      },
       include: {
         supplier: { select: { id: true, name: true, email: true, phone: true } },
       },
       orderBy: { current_stock: 'asc' },
     });
 
-    res.json(items);
+    // Filter items where current stock is at or below reorder level
+    const alertItems = items.filter(item => item.current_stock <= item.reorder_level);
+
+    res.json(alertItems);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
