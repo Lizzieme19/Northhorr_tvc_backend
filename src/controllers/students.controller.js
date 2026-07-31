@@ -1,5 +1,6 @@
 const prisma = require('../config/db');
-const { uploadToS3 } = require('../middleware/upload');
+const uploadToS3 = require('../utils/s3Upload');
+const { hasWhiteBackground, validateImage } = require('../utils/imageValidator');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const PDFDocument = require('pdfkit');
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = require('docx');
@@ -310,6 +311,28 @@ const uploadPhoto = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Validate image format and dimensions
+    const imageValidation = await validateImage(req.file.buffer, {
+      minWidth: 300,
+      minHeight: 300,
+      maxWidth: 5000,
+      maxHeight: 5000,
+      maxSizeMB: 5,
+      formats: ['jpeg', 'png', 'jpg'],
+    });
+
+    if (!imageValidation.valid) {
+      return res.status(400).json({ error: imageValidation.error });
+    }
+
+    // Validate white background for ID card photos
+    const isWhiteBackground = await hasWhiteBackground(req.file.buffer);
+    if (!isWhiteBackground) {
+      return res.status(400).json({ 
+        error: 'Profile picture must have a white background (passport photo style)' 
+      });
+    }
+
     const { url } = await uploadToS3(req.file.buffer, req.file.originalname, 'photos');
 
     const updated = await prisma.student.update({
@@ -332,6 +355,28 @@ const uploadMyProfilePicture = async (req, res) => {
 
     const student = await prisma.student.findUnique({ where: { user_id: req.user.id } });
     if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    // Validate image format and dimensions
+    const imageValidation = await validateImage(req.file.buffer, {
+      minWidth: 300,
+      minHeight: 300,
+      maxWidth: 5000,
+      maxHeight: 5000,
+      maxSizeMB: 5,
+      formats: ['jpeg', 'png', 'jpg'],
+    });
+
+    if (!imageValidation.valid) {
+      return res.status(400).json({ error: imageValidation.error });
+    }
+
+    // Validate white background for ID card photos
+    const isWhiteBackground = await hasWhiteBackground(req.file.buffer);
+    if (!isWhiteBackground) {
+      return res.status(400).json({ 
+        error: 'Profile picture must have a white background (passport photo style)' 
+      });
+    }
 
     const { url } = await uploadToS3(req.file.buffer, req.file.originalname, 'profile-pictures');
 

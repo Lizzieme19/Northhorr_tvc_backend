@@ -305,6 +305,9 @@ model Student {
   // Current term enrollment
   current_term_id String? // Active term for the student
 
+  // ID Card
+  id_card_expiry_date DateTime? // Expiry date for student ID card
+
   status          StudentStatus @default(ACTIVE)
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
