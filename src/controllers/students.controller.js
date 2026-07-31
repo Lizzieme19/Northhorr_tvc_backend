@@ -1,5 +1,5 @@
 const prisma = require('../config/db');
-const uploadToS3 = require('../utils/s3Upload');
+const { uploadToS3 } = require('../middleware/upload');
 const { hasWhiteBackground, validateImage } = require('../utils/imageValidator');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const PDFDocument = require('pdfkit');
