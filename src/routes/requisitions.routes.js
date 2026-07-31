@@ -38,7 +38,7 @@ const {
  *       200:
  *         description: List of requisitions
  */
-router.get('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getRequisitions);
+router.get('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT', 'DEPT_HEAD'), getRequisitions);
 
 /**
  * @swagger

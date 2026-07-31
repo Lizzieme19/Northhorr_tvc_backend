@@ -17,6 +17,28 @@ const getRequisitions = async (req, res) => {
     if (department_id) where.department_id = department_id;
     if (status) where.status = status;
 
+    // Department heads can only view their department's requisitions
+    if (req.user.role === 'DEPT_HEAD') {
+      const deptHead = await prisma.department.findUnique({
+        where: { head_user_id: req.user.id },
+        select: { id: true }
+      });
+      if (deptHead) {
+        where.department_id = deptHead.id;
+      } else {
+        // If department head has no department assigned, return empty results
+        return res.json({
+          requisitions: [],
+          pagination: {
+            total: 0,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: 0,
+          },
+        });
+      }
+    }
+
     const [requisitions, total] = await Promise.all([
       prisma.purchaseRequisition.findMany({
         where,
