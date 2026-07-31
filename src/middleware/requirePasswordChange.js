@@ -26,6 +26,21 @@ const requirePasswordChange = async (req, res, next) => {
       return next();
     }
 
+    // Allow GET /api/students/me endpoint for students to view their profile
+    if (req.path === '/api/students/me' && req.method === 'GET') {
+      return next();
+    }
+
+    // Allow GET /api/fees/students/me/enrollments for students to view enrollments
+    if (req.path === '/api/fees/students/me/enrollments' && req.method === 'GET') {
+      return next();
+    }
+
+    // Allow GET /api/fees/students/:id/summary for students to view fee summary
+    if (req.path.match(/^\/api\/fees\/students\/[^/]+\/summary$/) && req.method === 'GET') {
+      return next();
+    }
+
     if (user.must_change_password) {
       return res.status(403).json({
         error: 'Password change required',
