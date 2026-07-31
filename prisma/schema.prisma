@@ -413,8 +413,8 @@ model Staff {
   updated_at        DateTime @updatedAt
 
   user              User     @relation(fields: [user_id], references: [id])
-  designation       Designation @relation(fields: [designation_id], references: [id])
-  department        Department @relation(fields: [department_id], references: [id])
+  designation       Designation? @relation(fields: [designation_id], references: [id])
+  department        Department? @relation(fields: [department_id], references: [id])
   reports_to        Staff?   @relation("ReportsTo", fields: [reports_to_id], references: [id])
   subordinates      Staff[]  @relation("ReportsTo")
   leave_requests    LeaveRequest[]

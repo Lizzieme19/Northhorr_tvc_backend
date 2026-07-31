@@ -166,7 +166,7 @@ const changePassword = async (req, res) => {
 // POST /api/auth/create-staff (Admin only)
 const createStaffAccount = async (req, res) => {
   try {
-    const { email, password, role, department_id, first_name, last_name } = req.body;
+    const { email, password, role, department_id, first_name, last_name, phone } = req.body;
     const allowedRoles = ['ADMIN', 'DEPT_HEAD', 'FINANCE', 'STAFF', 'PROCUREMENT', 'HR'];
 
     if (!email || !password || !role) {
