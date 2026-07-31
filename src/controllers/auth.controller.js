@@ -46,34 +46,6 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Check fee clearance for students
-    if (user.role === 'STUDENT') {
-      const student = await prisma.student.findUnique({
-        where: { user_id: user.id },
-        include: { fee_records: true },
-      });
-
-      if (!student) {
-        return res.status(401).json({ error: 'Student record not found' });
-      }
-
-      // Check if fees are cleared
-      const totalFees = student.fee_records.reduce((sum, record) => sum + record.amount, 0);
-      const paidFees = student.fee_records
-        .filter(record => record.status === 'PAID')
-        .reduce((sum, record) => sum + record.amount, 0);
-
-      if (paidFees < totalFees) {
-        return res.status(403).json({ 
-          error: 'Fee clearance required',
-          message: 'Please clear your fees before logging in',
-          totalFees,
-          paidFees,
-          balance: totalFees - paidFees,
-        });
-      }
-    }
-
     const { accessToken, refreshToken } = generateTokens(user.id, user.role);
 
     // Store refresh token
