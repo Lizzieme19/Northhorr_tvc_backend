@@ -526,8 +526,8 @@ const updateMyProfile = async (req, res) => {
           ...(phone && { phone }),
           ...(address && { address }),
           ...(id_number && { id_number }),
-          ...(emergency_contact_name && { emergency_contact_name }),
-          ...(emergency_contact_phone && { emergency_contact_phone }),
+          ...(emergency_contact_name && { emergency_person: emergency_contact_name }),
+          ...(emergency_contact_phone && { emergency_phone: emergency_contact_phone }),
         },
       });
     }

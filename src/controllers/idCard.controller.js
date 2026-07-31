@@ -65,6 +65,7 @@ const getMyIDCard = async (req, res) => {
     }
 
     const studentId = req.user.student.id;
+    console.log('ID Card request for student ID:', studentId);
 
     // Validate student exists and has profile picture
     const student = await prisma.student.findUnique({
@@ -79,6 +80,7 @@ const getMyIDCard = async (req, res) => {
     });
 
     if (!student) {
+      console.error('Student not found with ID:', studentId);
       return res.status(404).json({ error: 'Student not found' });
     }
 
