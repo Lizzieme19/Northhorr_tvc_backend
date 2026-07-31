@@ -293,28 +293,6 @@ router.post('/:id/photo', authenticate, upload.single('photo'), uploadPhoto);
 
 /**
  * @swagger
- * /api/students/{id}/id-card:
- *   get:
- *     summary: Generate student ID card
- *     tags: [Students]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: ID card generated
- *       404:
- *         description: Student not found
- */
-router.get('/:id/id-card', authenticate, generateIdCard);
-
-/**
- * @swagger
  * /api/students/documents/{type}:
  *   get:
  *     summary: Generate prefilled document (Student only)
