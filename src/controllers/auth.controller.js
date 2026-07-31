@@ -206,8 +206,10 @@ const createStaffAccount = async (req, res) => {
           last_name: last_name || 'Staff',
           gender: 'Other',
           date_of_birth: new Date('1990-01-01'),
+          phone: phone || '',
           employment_type: 'FULL_TIME',
           date_hired: new Date(),
+          salary: 0, // Default salary, can be updated later
         },
       });
 

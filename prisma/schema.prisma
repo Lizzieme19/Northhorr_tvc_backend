@@ -377,8 +377,8 @@ model Staff {
   id                String   @id @default(uuid())
   user_id           String   @unique
   employee_number   String   @unique
-  designation_id    String
-  department_id     String
+  designation_id    String?
+  department_id     String?
   reports_to_id     String?
 
   // Personal Details
@@ -386,7 +386,7 @@ model Staff {
   last_name         String
   gender            String
   date_of_birth    DateTime
-  phone             String
+  phone             String?
   address           String?
   emergency_contact String?
   emergency_phone   String?
@@ -397,7 +397,7 @@ model Staff {
   date_hired        DateTime
   date_terminated   DateTime?
   termination_reason String?
-  salary            Float
+  salary            Float?
   bank_account      String?
   bank_name         String?
   kra_pin           String?
