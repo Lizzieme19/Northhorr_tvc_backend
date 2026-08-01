@@ -128,6 +128,7 @@ async function generateIDCard(studentId) {
     const browser = await puppeteer.launch({
       headless: 'new',
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      protocolTimeout: 120000, // Increase protocol timeout to 2 minutes
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
