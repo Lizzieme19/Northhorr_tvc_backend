@@ -127,8 +127,14 @@ async function generateIDCard(studentId) {
 
     const page = await browser.newPage();
 
-    // Set content and wait for images to load
-    await page.setContent(html, { waitUntil: ['networkidle0', 'load'] });
+    // Set content with more lenient timeout and wait conditions
+    await page.setContent(html, { 
+      waitUntil: 'domcontentloaded',
+      timeout: 60000 
+    });
+
+    // Wait a bit for images to load
+    await page.waitForTimeout(2000);
 
     // Generate screenshot
     const screenshot = await page.screenshot({
