@@ -140,6 +140,10 @@ async function generateIDCard(studentId) {
     const page = await browser.newPage();
     console.log('New page created');
 
+    // Set viewport size to match ID card dimensions
+    await page.setViewport({ width: 600, height: 400 });
+    console.log('Viewport set');
+
     // Set content with more lenient timeout and wait conditions
     console.log('Setting page content...');
     await page.setContent(html, { 
@@ -153,11 +157,12 @@ async function generateIDCard(studentId) {
     await new Promise(resolve => setTimeout(resolve, 3000));
     console.log('Images loaded');
 
-    // Generate screenshot
+    // Generate screenshot with explicit path to avoid memory issues
     console.log('Taking screenshot...');
     const screenshot = await page.screenshot({
       type: 'png',
       encoding: 'binary',
+      clip: { x: 0, y: 0, width: 600, height: 400 }
     });
     console.log('Screenshot taken');
 
