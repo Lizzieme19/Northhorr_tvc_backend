@@ -118,9 +118,10 @@ async function generateIDCard(studentId) {
     // Fill template
     const html = fillTemplate(template, student, qrCodeData);
 
-    // Launch Puppeteer
+    // Launch Puppeteer with system Chromium
     const browser = await puppeteer.launch({
       headless: 'new',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 

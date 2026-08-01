@@ -10,6 +10,27 @@ const {
 
 /**
  * @swagger
+ * /api/students/me/id-card:
+ *   get:
+ *     summary: Generate current student's ID card (Student only)
+ *     tags: [ID Cards]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: ID card PNG image
+ *         content:
+ *           image/png:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: Student missing profile picture or not active
+ */
+router.get('/students/me/id-card', authenticate, requireRoles('STUDENT'), getMyIDCard);
+
+/**
+ * @swagger
  * /api/students/:studentId/id-card:
  *   get:
  *     summary: Generate student ID card (Admin/Finance only)
@@ -36,27 +57,6 @@ const {
  *         description: Student not found
  */
 router.get('/students/:studentId/id-card', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentIDCard);
-
-/**
- * @swagger
- * /api/students/me/id-card:
- *   get:
- *     summary: Generate current student's ID card (Student only)
- *     tags: [ID Cards]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: ID card PNG image
- *         content:
- *           image/png:
- *             schema:
- *               type: string
- *               format: binary
- *       400:
- *         description: Student missing profile picture or not active
- */
-router.get('/students/me/id-card', authenticate, requireRoles('STUDENT'), getMyIDCard);
 
 /**
  * @swagger
