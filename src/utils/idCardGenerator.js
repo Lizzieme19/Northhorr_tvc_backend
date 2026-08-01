@@ -106,43 +106,63 @@ function fillTemplate(template, studentData, qrCodeData) {
  */
 async function generateIDCard(studentId) {
   try {
+    console.log('Starting ID card generation for student:', studentId);
+    
     // Fetch student data
     const student = await getStudentData(studentId);
+    console.log('Student data fetched:', student.admission_no);
 
     // Generate QR code
     const qrCodeData = await generateQRCode(student.admission_no);
+    console.log('QR code generated');
 
     // Read template
     const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
 
     // Fill template
     const html = fillTemplate(template, student, qrCodeData);
+    console.log('Template filled');
 
     // Launch Puppeteer with system Chromium
+    console.log('Launching browser...');
     const browser = await puppeteer.launch({
       headless: 'new',
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+      ],
     });
+    console.log('Browser launched');
 
     const page = await browser.newPage();
+    console.log('New page created');
 
     // Set content with more lenient timeout and wait conditions
+    console.log('Setting page content...');
     await page.setContent(html, { 
       waitUntil: 'domcontentloaded',
       timeout: 60000 
     });
+    console.log('Content set');
 
     // Wait for images to load using a simple delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('Waiting for images...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('Images loaded');
 
     // Generate screenshot
+    console.log('Taking screenshot...');
     const screenshot = await page.screenshot({
       type: 'png',
       encoding: 'binary',
     });
+    console.log('Screenshot taken');
 
     await browser.close();
+    console.log('Browser closed');
 
     return screenshot;
   } catch (error) {
