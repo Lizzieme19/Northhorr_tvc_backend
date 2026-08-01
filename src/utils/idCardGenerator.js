@@ -133,8 +133,8 @@ async function generateIDCard(studentId) {
       timeout: 60000 
     });
 
-    // Wait a bit for images to load
-    await page.waitForTimeout(2000);
+    // Wait for images to load using a simple delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Generate screenshot
     const screenshot = await page.screenshot({
