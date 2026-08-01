@@ -4,16 +4,16 @@ FROM node:18-bullseye-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Prisma and Canvas
+# Install system dependencies for Prisma and Canvas (minimal)
 RUN apt-get update && apt-get install -y \
     openssl \
     libssl1.1 \
     ca-certificates \
-    libcairo2-dev \
-    libjpeg-dev \
-    libpango1.0-dev \
-    libgif-dev \
-    librsvg2-dev \
+    libcairo2 \
+    libjpeg8 \
+    libpango-1.0-0 \
+    libgif7 \
+    librsvg2-2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
