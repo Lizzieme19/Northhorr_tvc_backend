@@ -4,18 +4,17 @@ FROM node:18-bullseye-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Prisma and Chromium (for Puppeteer)
+# Install system dependencies for Prisma and Canvas
 RUN apt-get update && apt-get install -y \
     openssl \
     libssl1.1 \
     ca-certificates \
-    fonts-liberation \
-    chromium \
+    libcairo2-dev \
+    libjpeg-dev \
+    libpango1.0-dev \
+    libgif-dev \
+    librsvg2-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Configure Puppeteer to use system Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Copy package files
 COPY package*.json ./

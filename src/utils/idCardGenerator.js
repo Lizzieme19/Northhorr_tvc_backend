@@ -1,16 +1,18 @@
-const puppeteer = require('puppeteer');
+const { createCanvas, loadImage } = require('canvas');
 const QRCode = require('qrcode');
-const fs = require('fs');
-const path = require('path');
 const prisma = require('../config/db');
 
-// Asset URLs (these should be configured via environment variables in production)
+// Asset URLs
 const LOGO_URL = process.env.ID_CARD_LOGO_URL || 'https://api.northhorrtvc.ac.ke/public/logo.png';
 const SEAL_URL = process.env.ID_CARD_SEAL_URL || 'https://api.northhorrtvc.ac.ke/public/seal.png';
 const PLACEHOLDER_PHOTO_URL = process.env.ID_CARD_PLACEHOLDER_PHOTO || 'https://via.placeholder.com/120x140?text=No+Photo';
 
-// Template path
-const TEMPLATE_PATH = path.join(__dirname, '../../templates/id-card.html');
+// Card dimensions
+const CARD_WIDTH = 650;
+const CARD_HEIGHT = 400;
+const BORDER_WIDTH = 6;
+const BORDER_COLOR = '#1a7a1a';
+const BANNER_WIDTH = 34;
 
 /**
  * Fetch student data for ID card generation
@@ -76,33 +78,38 @@ function formatExpiryDate(date) {
 }
 
 /**
- * Fill template with student data
+ * Draw rounded rectangle
  */
-function fillTemplate(template, studentData, qrCodeData) {
-  const { application, course, department } = studentData;
-  const fullName = `${application.surname} ${application.other_names}`;
-  const photoUrl = studentData.profile_picture_url || PLACEHOLDER_PHOTO_URL;
-  const idNumber = application.id_number || 'N/A';
-  const expiryDate = studentData.id_card_expiry_date 
-    ? formatExpiryDate(studentData.id_card_expiry_date) 
-    : 'N/A';
-
-  return template
-    .replace('{{LOGO}}', LOGO_URL)
-    .replace('{{SEAL}}', SEAL_URL)
-    .replace('{{PHOTO}}', photoUrl)
-    .replace('{{NAME}}', fullName)
-    .replace('{{ADM_NO}}', studentData.admission_no)
-    .replace('{{DEPT}}', department.name)
-    .replace('{{COURSE}}', course.name)
-    .replace('{{GENDER}}', application.gender)
-    .replace('{{ID_NO}}', idNumber)
-    .replace('{{EXPIRY}}', expiryDate)
-    .replace('{{QR_CODE}}', qrCodeData || '');
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 
 /**
- * Generate ID card as PNG buffer
+ * Draw text with vertical rotation
+ */
+function drawVerticalText(ctx, text, x, y, fontSize, fontWeight) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = `${fontWeight} ${fontSize}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+/**
+ * Generate ID card as PNG buffer using Canvas
  */
 async function generateIDCard(studentId) {
   try {
@@ -116,61 +123,144 @@ async function generateIDCard(studentId) {
     const qrCodeData = await generateQRCode(student.admission_no);
     console.log('QR code generated');
 
-    // Read template
-    const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+    // Create canvas
+    const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
+    const ctx = canvas.getContext('2d');
 
-    // Fill template
-    const html = fillTemplate(template, student, qrCodeData);
-    console.log('Template filled');
+    const { application, course, department } = student;
+    const fullName = `${application.surname} ${application.other_names}`;
+    const photoUrl = student.profile_picture_url || PLACEHOLDER_PHOTO_URL;
+    const idNumber = application.id_number || 'N/A';
+    const expiryDate = student.id_card_expiry_date 
+      ? formatExpiryDate(student.id_card_expiry_date) 
+      : 'N/A';
 
-    // Launch Puppeteer with system Chromium
-    console.log('Launching browser...');
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      protocolTimeout: 120000, // Increase protocol timeout to 2 minutes
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-      ],
-    });
-    console.log('Browser launched');
+    // Draw white background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-    const page = await browser.newPage();
-    console.log('New page created');
+    // Draw border
+    ctx.strokeStyle = BORDER_COLOR;
+    ctx.lineWidth = BORDER_WIDTH;
+    drawRoundedRect(ctx, BORDER_WIDTH/2, BORDER_WIDTH/2, CARD_WIDTH - BORDER_WIDTH, CARD_HEIGHT - BORDER_WIDTH, 18);
+    ctx.stroke();
 
-    // Set viewport size to match ID card dimensions
-    await page.setViewport({ width: 600, height: 400 });
-    console.log('Viewport set');
+    // Draw side banner
+    ctx.fillStyle = BORDER_COLOR;
+    ctx.fillRect(BORDER_WIDTH, BORDER_WIDTH, BANNER_WIDTH, CARD_HEIGHT - BORDER_WIDTH * 2);
 
-    // Set content with more lenient timeout and wait conditions
-    console.log('Setting page content...');
-    await page.setContent(html, { 
-      waitUntil: 'domcontentloaded',
-      timeout: 60000 
-    });
-    console.log('Content set');
+    // Draw vertical text in banner
+    ctx.fillStyle = '#ffffff';
+    drawVerticalText(ctx, 'STUDENT IDENTIFICATION CARD', BORDER_WIDTH + BANNER_WIDTH/2, CARD_HEIGHT/2, 20, 'bold');
 
-    // Wait for images to load using a simple delay
-    console.log('Waiting for images...');
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    console.log('Images loaded');
+    // Load and draw logo
+    try {
+      const logo = await loadImage(LOGO_URL);
+      ctx.drawImage(logo, BORDER_WIDTH + BANNER_WIDTH + 14, 14, 55, 55);
+    } catch (err) {
+      console.error('Failed to load logo:', err);
+    }
 
-    // Generate screenshot with explicit path to avoid memory issues
-    console.log('Taking screenshot...');
-    const screenshot = await page.screenshot({
-      type: 'png',
-      encoding: 'binary',
-      clip: { x: 0, y: 0, width: 600, height: 400 }
-    });
-    console.log('Screenshot taken');
+    // Draw header text
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 11px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('MINISTRY OF EDUCATION STATE DEPARTMENT', BORDER_WIDTH + BANNER_WIDTH + 80, 25);
+    ctx.fillText('FOR VOCATIONAL AND TECHNICAL TRAINING', BORDER_WIDTH + BANNER_WIDTH + 80, 40);
+    ctx.fillText('NORTH HORR TECHNICAL & VOCATIONAL COLLEGE', BORDER_WIDTH + BANNER_WIDTH + 80, 55);
 
-    await browser.close();
-    console.log('Browser closed');
+    // Draw header separator
+    ctx.strokeStyle = BORDER_COLOR;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(BORDER_WIDTH + BANNER_WIDTH + 14, 68);
+    ctx.lineTo(CARD_WIDTH - BORDER_WIDTH - 14, 68);
+    ctx.stroke();
 
-    return screenshot;
+    // Load and draw photo
+    try {
+      const photo = await loadImage(photoUrl);
+      ctx.save();
+      drawRoundedRect(ctx, BORDER_WIDTH + BANNER_WIDTH + 14, 90, 120, 140, 10);
+      ctx.clip();
+      ctx.drawImage(photo, BORDER_WIDTH + BANNER_WIDTH + 14, 90, 120, 140);
+      ctx.restore();
+      ctx.strokeStyle = BORDER_COLOR;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, BORDER_WIDTH + BANNER_WIDTH + 14, 90, 120, 140, 10);
+      ctx.stroke();
+    } catch (err) {
+      console.error('Failed to load photo:', err);
+      // Draw placeholder
+      ctx.fillStyle = '#cccccc';
+      ctx.fillRect(BORDER_WIDTH + BANNER_WIDTH + 14, 90, 120, 140);
+      ctx.fillStyle = '#666666';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('No Photo', BORDER_WIDTH + BANNER_WIDTH + 74, 160);
+    }
+
+    // Draw student information
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'left';
+    
+    // Name
+    ctx.font = 'bold 17px Arial';
+    ctx.fillText(fullName.toUpperCase(), BORDER_WIDTH + BANNER_WIDTH + 154, 100);
+    
+    // Fields
+    ctx.font = '14px Arial';
+    const fieldY = 120;
+    const fieldSpacing = 18;
+    
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('Adm No:', BORDER_WIDTH + BANNER_WIDTH + 154, fieldY);
+    ctx.font = '14px Arial';
+    ctx.fillText(student.admission_no, BORDER_WIDTH + BANNER_WIDTH + 224, fieldY);
+    
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('Dept:', BORDER_WIDTH + BANNER_WIDTH + 154, fieldY + fieldSpacing);
+    ctx.font = '14px Arial';
+    ctx.fillText(department.name, BORDER_WIDTH + BANNER_WIDTH + 224, fieldY + fieldSpacing);
+    
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('Course:', BORDER_WIDTH + BANNER_WIDTH + 154, fieldY + fieldSpacing * 2);
+    ctx.font = '14px Arial';
+    ctx.fillText(course.name, BORDER_WIDTH + BANNER_WIDTH + 224, fieldY + fieldSpacing * 2);
+    
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('Gender:', BORDER_WIDTH + BANNER_WIDTH + 154, fieldY + fieldSpacing * 3);
+    ctx.font = '14px Arial';
+    ctx.fillText(application.gender, BORDER_WIDTH + BANNER_WIDTH + 224, fieldY + fieldSpacing * 3);
+    
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('ID No:', BORDER_WIDTH + BANNER_WIDTH + 154, fieldY + fieldSpacing * 4);
+    ctx.font = '14px Arial';
+    ctx.fillText(idNumber, BORDER_WIDTH + BANNER_WIDTH + 224, fieldY + fieldSpacing * 4);
+    
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('Expiry:', BORDER_WIDTH + BANNER_WIDTH + 154, fieldY + fieldSpacing * 5);
+    ctx.font = '14px Arial';
+    ctx.fillText(expiryDate, BORDER_WIDTH + BANNER_WIDTH + 224, fieldY + fieldSpacing * 5);
+
+    // Load and draw seal
+    try {
+      const seal = await loadImage(SEAL_URL);
+      ctx.drawImage(seal, BORDER_WIDTH + BANNER_WIDTH + 30, CARD_HEIGHT - BORDER_WIDTH - 50, 40, 40);
+    } catch (err) {
+      console.error('Failed to load seal:', err);
+    }
+
+    // Draw QR code
+    try {
+      const qrImage = await loadImage(qrCodeData);
+      ctx.drawImage(qrImage, CARD_WIDTH - BORDER_WIDTH - 68, CARD_HEIGHT - BORDER_WIDTH - 60, 50, 50);
+    } catch (err) {
+      console.error('Failed to load QR code:', err);
+    }
+
+    console.log('ID card generated successfully');
+    return canvas.toBuffer('image/png');
   } catch (error) {
     console.error('ID card generation error:', error);
     throw error;
