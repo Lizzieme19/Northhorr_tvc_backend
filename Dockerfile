@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y \
 # Copy package files
 COPY package*.json ./
 
+# Copy public folder for assets (logo, seal)
+COPY public ./public
+
 # Install dependencies
 RUN npm ci --only=production
 
