@@ -214,10 +214,10 @@ async function generateIDCard(studentId) {
     const contentWidth = CARD_WIDTH - BORDER_WIDTH * 2 - BANNER_WIDTH - 30;
     const contentX = BORDER_WIDTH + BANNER_WIDTH + 15;
 
-    // Draw photo on the right side
+    // Draw photo on the left side
     const photoWidth = 130;
     const photoHeight = 160;
-    const photoX = CARD_WIDTH - BORDER_WIDTH - photoWidth - 20;
+    const photoX = contentX;
     const photoY = contentY;
 
     try {
@@ -245,8 +245,8 @@ async function generateIDCard(studentId) {
       ctx.fillText('NO PHOTO', photoX + photoWidth/2, photoY + photoHeight/2);
     }
 
-    // Draw student information on the left
-    const infoX = contentX;
+    // Draw student information on the right
+    const infoX = photoX + photoWidth + 25;
     const infoWidth = contentWidth - photoWidth - 30;
 
     // Name
@@ -320,28 +320,28 @@ async function generateIDCard(studentId) {
     // Draw footer section with seal and QR code
     const footerY = CARD_HEIGHT - BORDER_WIDTH - 60;
 
-    // Load and draw seal
+    // Load and draw seal (under photo)
     try {
       const seal = await loadImage(SEAL_PATH);
-      ctx.drawImage(seal, infoX, footerY, 50, 50);
+      ctx.drawImage(seal, photoX + (photoWidth - 50) / 2, footerY, 50, 50);
     } catch (err) {
       console.error('Failed to load seal:', err);
       // Draw placeholder seal
       ctx.fillStyle = ACCENT_COLOR;
       ctx.beginPath();
-      ctx.arc(infoX + 25, footerY + 25, 25, 0, Math.PI * 2);
+      ctx.arc(photoX + photoWidth/2, footerY + 25, 25, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 9px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('OFFICIAL', infoX + 25, footerY + 22);
-      ctx.fillText('SEAL', infoX + 25, footerY + 32);
+      ctx.fillText('OFFICIAL', photoX + photoWidth/2, footerY + 22);
+      ctx.fillText('SEAL', photoX + photoWidth/2, footerY + 32);
     }
 
-    // Draw QR code
+    // Draw QR code (under info section, right-aligned)
     try {
       const qrImage = await loadImage(qrCodeData);
-      ctx.drawImage(qrImage, photoX + (photoWidth - 50) / 2, footerY, 50, 50);
+      ctx.drawImage(qrImage, infoX + infoWidth - 50, footerY, 50, 50);
     } catch (err) {
       console.error('Failed to load QR code:', err);
     }
