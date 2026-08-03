@@ -5,18 +5,20 @@ const path = require('path');
 
 // Asset paths (local files)
 const LOGO_PATH = path.join(__dirname, '../../public/logo.png');
+const MINISTRY_PATH = path.join(__dirname, '../../public/Ministry.png');
 const SEAL_PATH = path.join(__dirname, '../../public/seal.png');
 const PLACEHOLDER_PHOTO_URL = process.env.ID_CARD_PLACEHOLDER_PHOTO || 'https://via.placeholder.com/120x140?text=No+Photo';
 
 // Card dimensions
-const CARD_WIDTH = 650;
-const CARD_HEIGHT = 400;
-const BORDER_WIDTH = 6;
-const BORDER_COLOR = '#2d8a2d';
-const BANNER_WIDTH = 34;
-const HEADER_BG_COLOR = '#f0f8f0';
-const FIELD_LABEL_COLOR = '#2d8a2d';
+const CARD_WIDTH = 700;
+const CARD_HEIGHT = 450;
+const BORDER_WIDTH = 8;
+const BORDER_COLOR = '#1a5a1a';
+const BANNER_WIDTH = 40;
+const HEADER_BG_COLOR = '#ffffff';
+const FIELD_LABEL_COLOR = '#1a5a1a';
 const FIELD_VALUE_COLOR = '#333333';
+const ACCENT_COLOR = '#2d8a2d';
 
 /**
  * Fetch student data for ID card generation
@@ -143,171 +145,203 @@ async function generateIDCard(studentId) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-    // Draw border
+    // Draw outer border
     ctx.strokeStyle = BORDER_COLOR;
     ctx.lineWidth = BORDER_WIDTH;
-    drawRoundedRect(ctx, BORDER_WIDTH/2, BORDER_WIDTH/2, CARD_WIDTH - BORDER_WIDTH, CARD_HEIGHT - BORDER_WIDTH, 18);
+    drawRoundedRect(ctx, BORDER_WIDTH/2, BORDER_WIDTH/2, CARD_WIDTH - BORDER_WIDTH, CARD_HEIGHT - BORDER_WIDTH, 20);
+    ctx.stroke();
+
+    // Draw inner border
+    ctx.strokeStyle = ACCENT_COLOR;
+    ctx.lineWidth = 2;
+    drawRoundedRect(ctx, BORDER_WIDTH/2 + 4, BORDER_WIDTH/2 + 4, CARD_WIDTH - BORDER_WIDTH - 8, CARD_HEIGHT - BORDER_WIDTH - 8, 18);
     ctx.stroke();
 
     // Draw side banner with gradient
     const bannerGradient = ctx.createLinearGradient(BORDER_WIDTH, 0, BORDER_WIDTH + BANNER_WIDTH, 0);
-    bannerGradient.addColorStop(0, '#2d8a2d');
+    bannerGradient.addColorStop(0, '#1a5a1a');
+    bannerGradient.addColorStop(0.5, '#2d8a2d');
     bannerGradient.addColorStop(1, '#1a5a1a');
     ctx.fillStyle = bannerGradient;
     ctx.fillRect(BORDER_WIDTH, BORDER_WIDTH, BANNER_WIDTH, CARD_HEIGHT - BORDER_WIDTH * 2);
 
     // Draw vertical text in banner
     ctx.fillStyle = '#ffffff';
-    drawVerticalText(ctx, 'STUDENT IDENTIFICATION CARD', BORDER_WIDTH + BANNER_WIDTH/2, CARD_HEIGHT/2, 18, 'bold');
+    drawVerticalText(ctx, 'STUDENT', BORDER_WIDTH + BANNER_WIDTH/2, CARD_HEIGHT/2 - 25, 16, 'bold');
+    drawVerticalText(ctx, 'ID CARD', BORDER_WIDTH + BANNER_WIDTH/2, CARD_HEIGHT/2 + 25, 16, 'bold');
 
-    // Draw header background
-    ctx.fillStyle = HEADER_BG_COLOR;
-    ctx.fillRect(BORDER_WIDTH + BANNER_WIDTH + 10, 10, CARD_WIDTH - BORDER_WIDTH * 2 - BANNER_WIDTH - 20, 70);
+    // Draw header section
+    const headerY = 15;
+    const headerHeight = 80;
 
-    // Load and draw logo
+    // Load and draw logo (left side)
     try {
       const logo = await loadImage(LOGO_PATH);
-      ctx.drawImage(logo, BORDER_WIDTH + BANNER_WIDTH + 18, 18, 50, 50);
+      ctx.drawImage(logo, BORDER_WIDTH + BANNER_WIDTH + 20, headerY + 10, 60, 60);
     } catch (err) {
       console.error('Failed to load logo:', err);
-      // Draw placeholder
-      ctx.fillStyle = '#2d8a2d';
-      ctx.fillRect(BORDER_WIDTH + BANNER_WIDTH + 18, 18, 50, 50);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 10px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('LOGO', BORDER_WIDTH + BANNER_WIDTH + 43, 43);
     }
 
-    // Draw header text
-    ctx.fillStyle = '#2d8a2d';
-    ctx.font = 'bold 10px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('MINISTRY OF EDUCATION STATE DEPARTMENT', BORDER_WIDTH + BANNER_WIDTH + 85, 25);
-    ctx.fillText('FOR VOCATIONAL AND TECHNICAL TRAINING', BORDER_WIDTH + BANNER_WIDTH + 85, 38);
-    ctx.font = 'bold 11px Arial';
-    ctx.fillText('NORTH HORR TECHNICAL & VOCATIONAL COLLEGE', BORDER_WIDTH + BANNER_WIDTH + 85, 52);
+    // Load and draw Ministry logo (right side)
+    try {
+      const ministry = await loadImage(MINISTRY_PATH);
+      ctx.drawImage(ministry, CARD_WIDTH - BORDER_WIDTH - 80, headerY + 10, 60, 60);
+    } catch (err) {
+      console.error('Failed to load Ministry logo:', err);
+    }
 
-    // Draw header separator
-    ctx.strokeStyle = '#2d8a2d';
-    ctx.lineWidth = 2;
+    // Draw header text (centered)
+    ctx.fillStyle = BORDER_COLOR;
+    ctx.font = 'bold 11px Arial';
+    ctx.textAlign = 'center';
+    const headerCenterX = BORDER_WIDTH + BANNER_WIDTH + (CARD_WIDTH - BORDER_WIDTH * 2 - BANNER_WIDTH) / 2;
+    ctx.fillText('MINISTRY OF EDUCATION', headerCenterX, headerY + 20);
+    ctx.fillText('STATE DEPARTMENT FOR VOCATIONAL & TECHNICAL TRAINING', headerCenterX, headerY + 35);
+    ctx.font = 'bold 13px Arial';
+    ctx.fillStyle = ACCENT_COLOR;
+    ctx.fillText('NORTH HORR TECHNICAL & VOCATIONAL COLLEGE', headerCenterX, headerY + 55);
+
+    // Draw header separator line
+    ctx.strokeStyle = ACCENT_COLOR;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(BORDER_WIDTH + BANNER_WIDTH + 10, 82);
-    ctx.lineTo(CARD_WIDTH - BORDER_WIDTH - 10, 82);
+    ctx.moveTo(BORDER_WIDTH + BANNER_WIDTH + 15, headerY + headerHeight);
+    ctx.lineTo(CARD_WIDTH - BORDER_WIDTH - 15, headerY + headerHeight);
     ctx.stroke();
 
-    // Load and draw photo
+    // Draw content area
+    const contentY = headerY + headerHeight + 20;
+    const contentWidth = CARD_WIDTH - BORDER_WIDTH * 2 - BANNER_WIDTH - 30;
+    const contentX = BORDER_WIDTH + BANNER_WIDTH + 15;
+
+    // Draw photo on the right side
+    const photoWidth = 130;
+    const photoHeight = 160;
+    const photoX = CARD_WIDTH - BORDER_WIDTH - photoWidth - 20;
+    const photoY = contentY;
+
     try {
       const photo = await loadImage(photoUrl);
       ctx.save();
-      drawRoundedRect(ctx, BORDER_WIDTH + BANNER_WIDTH + 18, 95, 115, 135, 8);
+      drawRoundedRect(ctx, photoX, photoY, photoWidth, photoHeight, 10);
       ctx.clip();
-      ctx.drawImage(photo, BORDER_WIDTH + BANNER_WIDTH + 18, 95, 115, 135);
+      ctx.drawImage(photo, photoX, photoY, photoWidth, photoHeight);
       ctx.restore();
-      ctx.strokeStyle = '#2d8a2d';
-      ctx.lineWidth = 2;
-      drawRoundedRect(ctx, BORDER_WIDTH + BANNER_WIDTH + 18, 95, 115, 135, 8);
+      ctx.strokeStyle = ACCENT_COLOR;
+      ctx.lineWidth = 3;
+      drawRoundedRect(ctx, photoX, photoY, photoWidth, photoHeight, 10);
       ctx.stroke();
     } catch (err) {
       console.error('Failed to load photo:', err);
-      // Draw placeholder
-      ctx.fillStyle = '#f0f8f0';
-      ctx.fillRect(BORDER_WIDTH + BANNER_WIDTH + 18, 95, 115, 135);
-      ctx.strokeStyle = '#2d8a2d';
-      ctx.lineWidth = 2;
-      drawRoundedRect(ctx, BORDER_WIDTH + BANNER_WIDTH + 18, 95, 115, 135, 8);
+      ctx.fillStyle = '#f5f5f5';
+      ctx.fillRect(photoX, photoY, photoWidth, photoHeight);
+      ctx.strokeStyle = ACCENT_COLOR;
+      ctx.lineWidth = 3;
+      drawRoundedRect(ctx, photoX, photoY, photoWidth, photoHeight, 10);
       ctx.stroke();
-      ctx.fillStyle = '#2d8a2d';
-      ctx.font = '12px Arial';
+      ctx.fillStyle = ACCENT_COLOR;
+      ctx.font = 'bold 14px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('No Photo', BORDER_WIDTH + BANNER_WIDTH + 75, 162);
+      ctx.fillText('NO PHOTO', photoX + photoWidth/2, photoY + photoHeight/2);
     }
 
-    // Draw student information with better spacing
-    ctx.textAlign = 'left';
-    
+    // Draw student information on the left
+    const infoX = contentX;
+    const infoWidth = contentWidth - photoWidth - 30;
+
     // Name
-    ctx.fillStyle = '#2d8a2d';
-    ctx.font = 'bold 16px Arial';
-    ctx.fillText(fullName.toUpperCase(), BORDER_WIDTH + BANNER_WIDTH + 150, 105);
-    
-    // Fields with labels and values
-    ctx.font = '13px Arial';
-    const fieldY = 125;
-    const fieldSpacing = 22;
-    const labelX = BORDER_WIDTH + BANNER_WIDTH + 150;
-    const valueX = BORDER_WIDTH + BANNER_WIDTH + 220;
-    
+    ctx.fillStyle = BORDER_COLOR;
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(fullName.toUpperCase(), infoX, contentY + 25);
+
+    // Draw separator under name
+    ctx.strokeStyle = ACCENT_COLOR;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(infoX, contentY + 35);
+    ctx.lineTo(infoX + infoWidth, contentY + 35);
+    ctx.stroke();
+
+    // Fields with better spacing
+    const fieldY = contentY + 60;
+    const fieldSpacing = 28;
+    const labelX = infoX;
+    const valueX = infoX + 100;
+
     // Adm No
     ctx.fillStyle = FIELD_LABEL_COLOR;
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 14px Arial';
     ctx.fillText('Adm No:', labelX, fieldY);
     ctx.fillStyle = FIELD_VALUE_COLOR;
-    ctx.font = '13px Arial';
+    ctx.font = '14px Arial';
     ctx.fillText(student.admission_no, valueX, fieldY);
-    
+
     // Dept
     ctx.fillStyle = FIELD_LABEL_COLOR;
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 14px Arial';
     ctx.fillText('Dept:', labelX, fieldY + fieldSpacing);
     ctx.fillStyle = FIELD_VALUE_COLOR;
-    ctx.font = '13px Arial';
+    ctx.font = '14px Arial';
     ctx.fillText(department.name, valueX, fieldY + fieldSpacing);
-    
+
     // Course
     ctx.fillStyle = FIELD_LABEL_COLOR;
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 14px Arial';
     ctx.fillText('Course:', labelX, fieldY + fieldSpacing * 2);
     ctx.fillStyle = FIELD_VALUE_COLOR;
-    ctx.font = '13px Arial';
+    ctx.font = '14px Arial';
     ctx.fillText(course.name, valueX, fieldY + fieldSpacing * 2);
-    
+
     // Gender
     ctx.fillStyle = FIELD_LABEL_COLOR;
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 14px Arial';
     ctx.fillText('Gender:', labelX, fieldY + fieldSpacing * 3);
     ctx.fillStyle = FIELD_VALUE_COLOR;
-    ctx.font = '13px Arial';
+    ctx.font = '14px Arial';
     ctx.fillText(application.gender, valueX, fieldY + fieldSpacing * 3);
-    
+
     // ID No
     ctx.fillStyle = FIELD_LABEL_COLOR;
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 14px Arial';
     ctx.fillText('ID No:', labelX, fieldY + fieldSpacing * 4);
     ctx.fillStyle = FIELD_VALUE_COLOR;
-    ctx.font = '13px Arial';
+    ctx.font = '14px Arial';
     ctx.fillText(idNumber, valueX, fieldY + fieldSpacing * 4);
-    
+
     // Expiry
     ctx.fillStyle = FIELD_LABEL_COLOR;
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 14px Arial';
     ctx.fillText('Expiry:', labelX, fieldY + fieldSpacing * 5);
     ctx.fillStyle = FIELD_VALUE_COLOR;
-    ctx.font = '13px Arial';
+    ctx.font = '14px Arial';
     ctx.fillText(expiryDate, valueX, fieldY + fieldSpacing * 5);
+
+    // Draw footer section with seal and QR code
+    const footerY = CARD_HEIGHT - BORDER_WIDTH - 60;
 
     // Load and draw seal
     try {
       const seal = await loadImage(SEAL_PATH);
-      ctx.drawImage(seal, BORDER_WIDTH + BANNER_WIDTH + 30, CARD_HEIGHT - BORDER_WIDTH - 55, 45, 45);
+      ctx.drawImage(seal, infoX, footerY, 50, 50);
     } catch (err) {
       console.error('Failed to load seal:', err);
       // Draw placeholder seal
-      ctx.fillStyle = '#2d8a2d';
+      ctx.fillStyle = ACCENT_COLOR;
       ctx.beginPath();
-      ctx.arc(BORDER_WIDTH + BANNER_WIDTH + 52, CARD_HEIGHT - BORDER_WIDTH - 32, 22, 0, Math.PI * 2);
+      ctx.arc(infoX + 25, footerY + 25, 25, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 8px Arial';
+      ctx.font = 'bold 9px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('OFFICIAL', BORDER_WIDTH + BANNER_WIDTH + 52, CARD_HEIGHT - BORDER_WIDTH - 35);
-      ctx.fillText('SEAL', BORDER_WIDTH + BANNER_WIDTH + 52, CARD_HEIGHT - BORDER_WIDTH - 25);
+      ctx.fillText('OFFICIAL', infoX + 25, footerY + 22);
+      ctx.fillText('SEAL', infoX + 25, footerY + 32);
     }
 
     // Draw QR code
     try {
       const qrImage = await loadImage(qrCodeData);
-      ctx.drawImage(qrImage, CARD_WIDTH - BORDER_WIDTH - 65, CARD_HEIGHT - BORDER_WIDTH - 55, 45, 45);
+      ctx.drawImage(qrImage, photoX + (photoWidth - 50) / 2, footerY, 50, 50);
     } catch (err) {
       console.error('Failed to load QR code:', err);
     }
