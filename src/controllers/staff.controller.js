@@ -156,6 +156,28 @@ const createStaff = async (req, res) => {
       return res.status(400).json({ error: 'user_id or email/password is required' });
     }
 
+    // Validate department exists
+    if (department_id) {
+      const dept = await prisma.department.findUnique({
+        where: { id: department_id },
+        select: { id: true },
+      });
+      if (!dept) {
+        return res.status(400).json({ error: 'Department not found' });
+      }
+    }
+
+    // Validate designation exists
+    if (designation_id) {
+      const designation = await prisma.designation.findUnique({
+        where: { id: designation_id },
+        select: { id: true },
+      });
+      if (!designation) {
+        return res.status(400).json({ error: 'Designation not found' });
+      }
+    }
+
     const staff = await prisma.staff.create({
       data: {
         user_id: userId,
@@ -257,7 +279,16 @@ const updateStaff = async (req, res) => {
 // DELETE /api/staff/:id - Delete staff (HR, ADMIN)
 const deleteStaff = async (req, res) => {
   try {
-    await prisma.staff.delete({ where: { id: req.params.id } });
+    const { id } = req.params;
+
+    // Delete related records first (cascade manually)
+    await prisma.leaveBalance.deleteMany({ where: { staff_id: id } });
+    await prisma.leaveRequest.deleteMany({ where: { staff_id: id } });
+    await prisma.employmentRecord.deleteMany({ where: { staff_id: id } });
+
+    // Delete the staff record
+    await prisma.staff.delete({ where: { id } });
+
     res.json({ message: 'Staff deleted successfully' });
   } catch (err) {
     console.error(err);
