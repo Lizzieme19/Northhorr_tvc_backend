@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     libssl1.1 \
     ca-certificates \
     libcairo2 \
-    libjpeg8 \
+    libjpeg62-turbo \
     libpango-1.0-0 \
     libgif7 \
     librsvg2-2 \
