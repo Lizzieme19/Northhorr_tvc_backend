@@ -143,7 +143,7 @@ const createStaff = async (req, res) => {
 
     // Create User account if user_id not provided but email and password are
     if (!userId && email && password) {
-      const bcrypt = require('bcrypt');
+      const bcrypt = require('bcryptjs');
       const hashed = await bcrypt.hash(password, 12);
       const user = await prisma.user.create({
         data: { email, password: hashed, role: 'STAFF' },
