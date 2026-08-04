@@ -200,6 +200,7 @@ async function safeLoadLocalImage(filePath, label) {
 async function generateIDCard(studentId) {
   try {
     console.log('Starting ID card generation for student:', studentId);
+    console.log('>>> RUNNING UPDATED idCardGenerator v2 <<<');
 
     // Fetch student data
     const student = await getStudentData(studentId);

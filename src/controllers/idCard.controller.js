@@ -44,7 +44,7 @@ const getStudentIDCard = async (req, res) => {
 
     // Set response headers
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Content-Disposition', `attachment; filename="ID-${student.admission_no}.png"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${student.admission_no}.png"`);
     
     res.send(pngBuffer);
   } catch (error) {
@@ -101,7 +101,7 @@ const getMyIDCard = async (req, res) => {
 
     // Set response headers
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Content-Disposition', `attachment; filename="ID-${student.admission_no}.png"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${student.admission_no}.png"`);
     
     res.send(pngBuffer);
   } catch (error) {
