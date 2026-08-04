@@ -5,61 +5,44 @@ const prisma = require('../config/db');
 const path = require('path');
 
 // ---------------------------------------------------------------------------
-// Asset paths (local files)
+// Asset paths - these files already exist in /app/public
 // ---------------------------------------------------------------------------
-const LOGO_PATH = path.join(__dirname, '../../public/logo.png');       // school badge (top-right)
-const MINISTRY_PATH = path.join(__dirname, '../../public/Ministry.png'); // ministry/coat of arms (top-left)
-const SEAL_PATH = path.join(__dirname, '../../public/seal.png');
+const MINISTRY_PATH = path.join(__dirname, '../../public/Ministry.png'); // top-left
+const LOGO_PATH = path.join(__dirname, '../../public/logo.png'); // top-right
 const PLACEHOLDER_PHOTO_URL =
-  process.env.ID_CARD_PLACEHOLDER_PHOTO || 'https://via.placeholder.com/140x185.png?text=No+Photo';
+  process.env.ID_CARD_PLACEHOLDER_PHOTO || 'https://via.placeholder.com/132x168?text=No+Photo';
 
-// ---------------------------------------------------------------------------
-// Card layout constants
-// Every position below is derived from a small set of numbers so the layout
-// stays consistent and nothing can silently overlap.
-// ---------------------------------------------------------------------------
-const CARD_WIDTH = 750;
-const CARD_HEIGHT = 480;
-
-const BORDER_WIDTH = 8;
-const BORDER_COLOR = '#1a5a1a';
+// Card dimensions (matching the HTML template)
+const CARD_WIDTH = 650;
+const CARD_HEIGHT = 400;
+const BORDER_WIDTH = 4;
+const BORDER_COLOR = '#1a7a3d';
 const ACCENT_COLOR = '#2d8a2d';
-const BANNER_WIDTH = 40;
+const FIELD_LABEL_COLOR = '#7a2d1f';
+const FIELD_VALUE_COLOR = '#222222';
 
-const FIELD_LABEL_COLOR = '#1a5a1a';
-const FIELD_VALUE_COLOR = '#333333';
-
-// Safe content box (inside border + banner, with a margin on every side)
-const CONTENT_LEFT = BORDER_WIDTH + BANNER_WIDTH + 18; // 66
-const CONTENT_RIGHT = CARD_WIDTH - BORDER_WIDTH - 18; // 724
-const CONTENT_BOTTOM = CARD_HEIGHT - BORDER_WIDTH - 12; // 460
-
-// Header band
-const HEADER_TOP = BORDER_WIDTH + 8; // 16
-const HEADER_HEIGHT = 88;
-const HEADER_BOTTOM = HEADER_TOP + HEADER_HEIGHT; // 104
-const LOGO_SIZE = 52;
-const LOGO_Y = HEADER_TOP + 12; // 28
+// Layout constants
+const CONTENT_LEFT = 18;
+const CONTENT_RIGHT = CARD_WIDTH - 18;
+const CONTENT_TOP = 14;
+const HEADER_HEIGHT = 70;
+const HEADER_BOTTOM = CONTENT_TOP + HEADER_HEIGHT;
+const LOGO_SIZE = 62;
+const LOGO_Y = CONTENT_TOP;
 
 // Photo block
-const PHOTO_X = CONTENT_LEFT; // 66
-const PHOTO_Y = HEADER_BOTTOM + 20; // 124
-const PHOTO_W = 140;
-const PHOTO_H = 185; // bottom = 309
+const PHOTO_X = CONTENT_LEFT;
+const PHOTO_Y = HEADER_BOTTOM + 22;
+const PHOTO_W = 132;
+const PHOTO_H = 168;
 
-// Info column (name + fields), to the right of the photo
-const INFO_X = PHOTO_X + PHOTO_W + 26; // 232
-const INFO_RIGHT = CONTENT_RIGHT; // 724
-const INFO_WIDTH = INFO_RIGHT - INFO_X; // 492
+// Info column
+const INFO_X = PHOTO_X + PHOTO_W + 22;
+const INFO_WIDTH = CONTENT_RIGHT - INFO_X;
 
-// Footer row (seal + QR)
-const SEAL_SIZE = 60;
-const QR_SIZE = 66;
-const FOOTER_TOP = 360; // safely below both the photo (309) and the last field (~345)
-
-module.exports.__layout = {
-  CARD_WIDTH, CARD_HEIGHT, HEADER_BOTTOM, PHOTO_Y, PHOTO_H, FOOTER_TOP,
-}; // exported only for layout sanity checks / tests, harmless in production
+// Bottom banner
+const BANNER_HEIGHT = 35;
+const BANNER_Y = CARD_HEIGHT - BANNER_HEIGHT;
 
 /**
  * Fetch student data for ID card generation
@@ -104,7 +87,7 @@ async function getStudentData(studentId) {
 async function generateQRCode(admissionNo) {
   try {
     return await QRCode.toDataURL(admissionNo, {
-      width: 80,
+      width: 52,
       margin: 0,
       errorCorrectionLevel: 'L',
     });
@@ -142,22 +125,7 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
 }
 
 /**
- * Draw text with vertical rotation
- */
-function drawVerticalText(ctx, text, x, y, fontSize, fontWeight) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(-Math.PI / 2);
-  ctx.font = `${fontWeight} ${fontSize}px Arial`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, 0, 0);
-  ctx.restore();
-}
-
-/**
- * Draw a clean circular placeholder badge (used whenever a logo/seal image
- * fails to load, so we never leave a blank gap or a broken-image icon).
+ * Draw a circular placeholder badge for missing images
  */
 function drawBadgePlaceholder(ctx, x, y, size, label) {
   const r = size / 2;
@@ -178,18 +146,17 @@ function drawBadgePlaceholder(ctx, x, y, size, label) {
 }
 
 /**
- * Safely load a local image asset, returning null (and logging a clear
- * warning) instead of throwing if the file is missing or corrupt.
+ * Safely load a local image
  */
-async function safeLoadLocalImage(filePath, label) {
+async function safeLoadImage(filePath, label) {
   if (!fs.existsSync(filePath)) {
-    console.warn(`[ID card] ${label} asset not found at ${filePath} - using placeholder`);
+    console.warn(`[ID card] ${label} not found at ${filePath} - using placeholder`);
     return null;
   }
   try {
     return await loadImage(filePath);
   } catch (err) {
-    console.warn(`[ID card] ${label} asset failed to load (${filePath}): ${err.message} - using placeholder`);
+    console.warn(`[ID card] Failed to load ${label}: ${err.message} - using placeholder`);
     return null;
   }
 }
@@ -200,7 +167,6 @@ async function safeLoadLocalImage(filePath, label) {
 async function generateIDCard(studentId) {
   try {
     console.log('Starting ID card generation for student:', studentId);
-    console.log('>>> RUNNING UPDATED idCardGenerator v2 <<<');
 
     // Fetch student data
     const student = await getStudentData(studentId);
@@ -226,31 +192,14 @@ async function generateIDCard(studentId) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-    // ---- Borders ----
+    // ---- Border ----
     ctx.strokeStyle = BORDER_COLOR;
     ctx.lineWidth = BORDER_WIDTH;
-    drawRoundedRect(ctx, BORDER_WIDTH / 2, BORDER_WIDTH / 2, CARD_WIDTH - BORDER_WIDTH, CARD_HEIGHT - BORDER_WIDTH, 20);
+    drawRoundedRect(ctx, BORDER_WIDTH / 2, BORDER_WIDTH / 2, CARD_WIDTH - BORDER_WIDTH, CARD_HEIGHT - BORDER_WIDTH, 18);
     ctx.stroke();
 
-    ctx.strokeStyle = ACCENT_COLOR;
-    ctx.lineWidth = 2;
-    drawRoundedRect(ctx, BORDER_WIDTH / 2 + 4, BORDER_WIDTH / 2 + 4, CARD_WIDTH - BORDER_WIDTH - 8, CARD_HEIGHT - BORDER_WIDTH - 8, 18);
-    ctx.stroke();
-
-    // ---- Side banner ----
-    const bannerGradient = ctx.createLinearGradient(BORDER_WIDTH, 0, BORDER_WIDTH + BANNER_WIDTH, 0);
-    bannerGradient.addColorStop(0, '#1a5a1a');
-    bannerGradient.addColorStop(0.5, '#2d8a2d');
-    bannerGradient.addColorStop(1, '#1a5a1a');
-    ctx.fillStyle = bannerGradient;
-    ctx.fillRect(BORDER_WIDTH, BORDER_WIDTH, BANNER_WIDTH, CARD_HEIGHT - BORDER_WIDTH * 2);
-
-    ctx.fillStyle = '#ffffff';
-    drawVerticalText(ctx, 'STUDENT', BORDER_WIDTH + BANNER_WIDTH / 2, CARD_HEIGHT / 2 - 55, 15, 'bold');
-    drawVerticalText(ctx, 'ID CARD', BORDER_WIDTH + BANNER_WIDTH / 2, CARD_HEIGHT / 2 + 55, 15, 'bold');
-
-    // ---- Header: Ministry logo (left) + text + School logo (right) ----
-    const ministryImg = await safeLoadLocalImage(MINISTRY_PATH, 'Ministry logo');
+    // ---- Header: Ministry logo (left) + titles + School logo (right) ----
+    const ministryImg = await safeLoadImage(MINISTRY_PATH, 'Ministry logo');
     const ministryX = CONTENT_LEFT;
     if (ministryImg) {
       ctx.drawImage(ministryImg, ministryX, LOGO_Y, LOGO_SIZE, LOGO_SIZE);
@@ -258,7 +207,7 @@ async function generateIDCard(studentId) {
       drawBadgePlaceholder(ctx, ministryX, LOGO_Y, LOGO_SIZE, 'MOE');
     }
 
-    const schoolImg = await safeLoadLocalImage(LOGO_PATH, 'School logo');
+    const schoolImg = await safeLoadImage(LOGO_PATH, 'School logo');
     const schoolX = CONTENT_RIGHT - LOGO_SIZE;
     if (schoolImg) {
       ctx.drawImage(schoolImg, schoolX, LOGO_Y, LOGO_SIZE, LOGO_SIZE);
@@ -266,28 +215,26 @@ async function generateIDCard(studentId) {
       drawBadgePlaceholder(ctx, schoolX, LOGO_Y, LOGO_SIZE, 'NHTVC');
     }
 
-    // Header text, centered strictly between the two logos so it can never
-    // collide with either one.
-    const textLeft = ministryX + LOGO_SIZE + 14;
-    const textRight = schoolX - 14;
+    // Header text (centered)
+    const textLeft = ministryX + LOGO_SIZE + 10;
+    const textRight = schoolX - 10;
     const headerCenterX = (textLeft + textRight) / 2;
 
-    ctx.fillStyle = BORDER_COLOR;
+    ctx.fillStyle = '#1a1a1a';
     ctx.textAlign = 'center';
-    ctx.font = 'bold 11px Arial';
-    ctx.fillText('MINISTRY OF EDUCATION', headerCenterX, HEADER_TOP + 30);
-    ctx.fillText('STATE DEPARTMENT FOR VOCATIONAL & TECHNICAL TRAINING', headerCenterX, HEADER_TOP + 44);
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 11.5px Arial';
+    ctx.fillText('MINISTRY OF EDUCATION STATE DEPARTMENT', headerCenterX, CONTENT_TOP + 20);
+    ctx.fillText('FOR VOCATIONAL AND TECHNICAL TRAINING', headerCenterX, CONTENT_TOP + 35);
+    ctx.font = 'bold 15px Arial';
     ctx.fillStyle = ACCENT_COLOR;
-    ctx.fillText('NORTH HORR TECHNICAL & VOCATIONAL COLLEGE', headerCenterX, HEADER_TOP + 66);
+    ctx.fillText('NORTH HORR TECHNICAL & VOCATIONAL COLLEGE', headerCenterX, CONTENT_TOP + 55);
 
-    // Header separator line
-    ctx.strokeStyle = ACCENT_COLOR;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(CONTENT_LEFT, HEADER_BOTTOM);
-    ctx.lineTo(CONTENT_RIGHT, HEADER_BOTTOM);
-    ctx.stroke();
+    // ---- Name ----
+    const nameY = HEADER_BOTTOM + 12;
+    ctx.fillStyle = '#111111';
+    ctx.font = 'bold 21px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(fullName.toUpperCase(), CONTENT_LEFT, nameY);
 
     // ---- Photo ----
     try {
@@ -297,7 +244,7 @@ async function generateIDCard(studentId) {
       ctx.clip();
       ctx.drawImage(photo, PHOTO_X, PHOTO_Y, PHOTO_W, PHOTO_H);
       ctx.restore();
-      ctx.strokeStyle = ACCENT_COLOR;
+      ctx.strokeStyle = BORDER_COLOR;
       ctx.lineWidth = 3;
       drawRoundedRect(ctx, PHOTO_X, PHOTO_Y, PHOTO_W, PHOTO_H, 10);
       ctx.stroke();
@@ -305,7 +252,7 @@ async function generateIDCard(studentId) {
       console.error('Failed to load photo:', err);
       ctx.fillStyle = '#f5f5f5';
       ctx.fillRect(PHOTO_X, PHOTO_Y, PHOTO_W, PHOTO_H);
-      ctx.strokeStyle = ACCENT_COLOR;
+      ctx.strokeStyle = BORDER_COLOR;
       ctx.lineWidth = 3;
       drawRoundedRect(ctx, PHOTO_X, PHOTO_Y, PHOTO_W, PHOTO_H, 10);
       ctx.stroke();
@@ -315,18 +262,11 @@ async function generateIDCard(studentId) {
       ctx.fillText('NO PHOTO', PHOTO_X + PHOTO_W / 2, PHOTO_Y + PHOTO_H / 2);
     }
 
-    // ---- Name + fields ----
-    ctx.fillStyle = BORDER_COLOR;
-    ctx.font = 'bold 20px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText(fullName.toUpperCase(), INFO_X, PHOTO_Y + 20);
-
-    ctx.strokeStyle = ACCENT_COLOR;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(INFO_X, PHOTO_Y + 34);
-    ctx.lineTo(INFO_X + INFO_WIDTH, PHOTO_Y + 34);
-    ctx.stroke();
+    // ---- Fields ----
+    const fieldY = PHOTO_Y + 20;
+    const fieldSpacing = 20;
+    const labelX = INFO_X;
+    const valueX = INFO_X + 78;
 
     const fields = [
       ['Adm No:', student.admission_no],
@@ -336,13 +276,9 @@ async function generateIDCard(studentId) {
       ['ID No:', idNumber],
       ['Expiry:', expiryDate],
     ];
-    const fieldStartY = PHOTO_Y + 64;
-    const fieldSpacing = 31;
-    const labelX = INFO_X;
-    const valueX = INFO_X + 100;
 
     fields.forEach(([label, value], i) => {
-      const y = fieldStartY + i * fieldSpacing;
+      const y = fieldY + i * fieldSpacing;
       ctx.fillStyle = FIELD_LABEL_COLOR;
       ctx.font = 'bold 15px Arial';
       ctx.textAlign = 'left';
@@ -352,42 +288,25 @@ async function generateIDCard(studentId) {
       ctx.fillText(String(value), valueX, y);
     });
 
-    // ---- Footer: seal (under photo) + QR (under info column) ----
-    const sealImg = await safeLoadLocalImage(SEAL_PATH, 'Seal');
-    const sealX = PHOTO_X + (PHOTO_W - SEAL_SIZE) / 2;
-    if (sealImg) {
-      ctx.drawImage(sealImg, sealX, FOOTER_TOP, SEAL_SIZE, SEAL_SIZE);
-    } else {
-      drawBadgePlaceholder(ctx, sealX, FOOTER_TOP, SEAL_SIZE, 'SEAL');
-    }
-
+    // ---- QR Code ----
     if (qrCodeData) {
       try {
         const qrImage = await loadImage(qrCodeData);
-        const qrX = INFO_X + INFO_WIDTH - QR_SIZE;
-        ctx.drawImage(qrImage, qrX, FOOTER_TOP, QR_SIZE, QR_SIZE);
+        const qrX = CONTENT_RIGHT - 52 - 4;
+        const qrY = PHOTO_Y + PHOTO_H - 52 - 4;
+        ctx.drawImage(qrImage, qrX, qrY, 52, 52);
       } catch (err) {
         console.error('Failed to load QR code:', err);
       }
     }
 
-    // ---- Footer rule + validity note (fills the bottom strip on purpose) ----
-    const footerRuleY = FOOTER_TOP + Math.max(SEAL_SIZE, QR_SIZE) + 14;
-    ctx.strokeStyle = '#cfe3cf';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(CONTENT_LEFT, footerRuleY);
-    ctx.lineTo(CONTENT_RIGHT, footerRuleY);
-    ctx.stroke();
-
-    ctx.fillStyle = '#777777';
-    ctx.font = 'italic 10px Arial';
+    // ---- Bottom Banner ----
+    ctx.fillStyle = BORDER_COLOR;
+    ctx.fillRect(0, BANNER_Y, CARD_WIDTH, BANNER_HEIGHT);
+    ctx.fillStyle = '#7a1f1f';
+    ctx.font = 'bold 17px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(
-      'This card is the property of North Horr Technical & Vocational College. If found, please return.',
-      CARD_WIDTH / 2,
-      Math.min(footerRuleY + 16, CONTENT_BOTTOM)
-    );
+    ctx.fillText('STUDENT IDENTIFICATION CARD', CARD_WIDTH / 2, BANNER_Y + 22);
 
     console.log('ID card generated successfully');
     return canvas.toBuffer('image/png');
