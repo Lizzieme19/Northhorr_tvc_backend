@@ -325,14 +325,6 @@ const uploadPhoto = async (req, res) => {
       return res.status(400).json({ error: imageValidation.error });
     }
 
-    // Validate white background for ID card photos
-    const isWhiteBackground = await hasWhiteBackground(req.file.buffer);
-    if (!isWhiteBackground) {
-      return res.status(400).json({ 
-        error: 'Profile picture must have a white background (passport photo style)' 
-      });
-    }
-
     const { url } = await uploadToS3(req.file.buffer, req.file.originalname, 'photos');
 
     const updated = await prisma.student.update({
@@ -368,14 +360,6 @@ const uploadMyProfilePicture = async (req, res) => {
 
     if (!imageValidation.valid) {
       return res.status(400).json({ error: imageValidation.error });
-    }
-
-    // Validate white background for ID card photos
-    const isWhiteBackground = await hasWhiteBackground(req.file.buffer);
-    if (!isWhiteBackground) {
-      return res.status(400).json({ 
-        error: 'Profile picture must have a white background (passport photo style)' 
-      });
     }
 
     const { url } = await uploadToS3(req.file.buffer, req.file.originalname, 'profile-pictures');
