@@ -31,6 +31,7 @@ const termsRoutes = require('./routes/terms.routes');
 const contactRoutes = require('./routes/contact.routes');
 const feeRoutes = require('./routes/fee.routes');
 const idCardRoutes = require('./routes/idCard.routes');
+const documentsRoutes = require('./routes/documents.routes');
 
 const app = express();
 
@@ -100,6 +101,7 @@ app.use('/api/terms', termsRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/fees', feeRoutes);
 app.use('/api', idCardRoutes);
+app.use('/api', documentsRoutes);
 
 // 404 handler
 app.use((req, res) => {
