@@ -54,11 +54,14 @@ function generateAdmissionForTraining(studentData) {
   const template = loadTemplate('admission_for_training.docx');
   
   const data = {
+    ref_no: studentData.ref_no || 'NHTVC/ADM',
     student_name: `${studentData.first_name} ${studentData.last_name}`,
+    student_address: studentData.address || 'N/A',
     admission_no: studentData.admission_no || 'N/A',
     course_name: studentData.course?.name || 'N/A',
     department_name: studentData.department?.name || 'N/A',
-    start_date: studentData.intake_date ? new Date(studentData.intake_date).toLocaleDateString() : 'N/A',
+    reporting_date: studentData.reporting_date ? new Date(studentData.reporting_date).toLocaleDateString() : 'N/A',
+    reporting_deadline: studentData.reporting_deadline ? new Date(studentData.reporting_deadline).toLocaleDateString() : 'N/A',
     duration: studentData.course?.duration || 'N/A',
     current_date: new Date().toLocaleDateString(),
   };
@@ -67,7 +70,7 @@ function generateAdmissionForTraining(studentData) {
 }
 
 /**
- * Generate Fee Structure document
+ * Generate Fee Structure document (minimal placeholders - just basic info)
  */
 function generateFeeStructure(studentData) {
   const template = loadTemplate('fee_structure.docx');
@@ -75,11 +78,6 @@ function generateFeeStructure(studentData) {
   const data = {
     student_name: `${studentData.first_name} ${studentData.last_name}`,
     admission_no: studentData.admission_no || 'N/A',
-    course_name: studentData.course?.name || 'N/A',
-    department_name: studentData.department?.name || 'N/A',
-    academic_year: studentData.academic_year || 'N/A',
-    semester: studentData.semester || 'N/A',
-    total_fees: studentData.total_fees || 'N/A',
     current_date: new Date().toLocaleDateString(),
   };
 
@@ -87,7 +85,7 @@ function generateFeeStructure(studentData) {
 }
 
 /**
- * Generate Student Personal Information document
+ * Generate Student Personal Information document (minimal placeholders - just basic info)
  */
 function generateStudentPersonalInfo(studentData) {
   const template = loadTemplate('student_personal_information.docx');
@@ -95,18 +93,6 @@ function generateStudentPersonalInfo(studentData) {
   const data = {
     student_name: `${studentData.first_name} ${studentData.last_name}`,
     admission_no: studentData.admission_no || 'N/A',
-    date_of_birth: studentData.date_of_birth ? new Date(studentData.date_of_birth).toLocaleDateString() : 'N/A',
-    gender: studentData.gender || 'N/A',
-    phone: studentData.phone || 'N/A',
-    email: studentData.email || 'N/A',
-    address: studentData.address || 'N/A',
-    county: studentData.county || 'N/A',
-    sub_county: studentData.sub_county || 'N/A',
-    course_name: studentData.course?.name || 'N/A',
-    department_name: studentData.department?.name || 'N/A',
-    guardian_name: studentData.guardian_name || 'N/A',
-    guardian_phone: studentData.guardian_phone || 'N/A',
-    guardian_relationship: studentData.guardian_relationship || 'N/A',
     current_date: new Date().toLocaleDateString(),
   };
 
