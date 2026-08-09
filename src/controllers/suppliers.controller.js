@@ -166,15 +166,18 @@ const deleteSupplier = async (req, res) => {
 
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
 
-    if (supplier._count.lpos > 0 || supplier._count.invoices > 0) {
-      return res.status(400).json({ error: 'Cannot delete supplier with associated LPOs or invoices' });
-    }
-
-    // Delete related quotations first
+    // Delete related records in order of dependencies
+    // Delete invoices first (they depend on LPOs)
+    await prisma.invoice.deleteMany({ where: { supplier_id: req.params.id } });
+    
+    // Delete LPOs (they depend on supplier and have items)
+    await prisma.lPO.deleteMany({ where: { supplier_id: req.params.id } });
+    
+    // Delete quotations
     await prisma.quotation.deleteMany({ where: { supplier_id: req.params.id } });
 
     await prisma.supplier.delete({ where: { id: req.params.id } });
-    res.json({ message: 'Supplier deleted successfully' });
+    res.json({ message: 'Supplier and all associated records deleted successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
