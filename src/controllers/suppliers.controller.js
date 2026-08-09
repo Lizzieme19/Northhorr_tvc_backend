@@ -170,6 +170,11 @@ const deleteSupplier = async (req, res) => {
     // Delete invoices first (they depend on LPOs)
     await prisma.supplierInvoice.deleteMany({ where: { supplier_id: req.params.id } });
     
+    // Delete GRNs (they reference LPOs)
+    await prisma.gRN.deleteMany({ 
+      where: { lpo: { supplier_id: req.params.id } } 
+    });
+    
     // Delete LPOs (they depend on supplier and have items)
     await prisma.lPO.deleteMany({ where: { supplier_id: req.params.id } });
     
