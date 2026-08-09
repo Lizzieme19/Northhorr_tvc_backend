@@ -82,8 +82,33 @@ const createGRN = async (req, res) => {
   try {
     const { lpo_id, items, notes, discrepancies } = req.body;
 
-    if (!lpo_id || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'LPO ID and items are required' });
+    if (!lpo_id) {
+      return res.status(400).json({ error: 'LPO ID is required' });
+    }
+
+    // If items not provided, fetch items from LPO
+    let grnItems = items;
+    if ((!items || !Array.isArray(items) || items.length === 0) && lpo_id) {
+      const lpo = await prisma.lPO.findUnique({
+        where: { id: lpo_id },
+        include: { items: true },
+      });
+      if (lpo && lpo.items && lpo.items.length > 0) {
+        grnItems = lpo.items.map(item => ({
+          item_name: item.item_name,
+          quantity_ordered: item.quantity,
+          quantity_received: item.quantity,
+          quantity_accepted: item.quantity,
+          batch_number: null,
+          expiry_date: null,
+          condition: 'GOOD',
+          notes: null,
+        }));
+      }
+    }
+
+    if (!grnItems || !Array.isArray(grnItems) || grnItems.length === 0) {
+      return res.status(400).json({ error: 'At least one item is required' });
     }
 
     const grn = await prisma.gRN.create({
@@ -95,7 +120,7 @@ const createGRN = async (req, res) => {
         notes,
         discrepancies,
         items: {
-          create: items.map(item => ({
+          create: grnItems.map(item => ({
             item_name: item.item_name,
             quantity_ordered: item.quantity_ordered,
             quantity_received: item.quantity_received,
