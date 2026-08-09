@@ -120,18 +120,20 @@ const createLPO = async (req, res) => {
         },
       });
       if (rfq && rfq.requisition && rfq.requisition.items && rfq.requisition.items.length > 0) {
-        lpoItems = rfq.requisition.items.map(item => ({
-          item_name: item.item_name,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.estimated_price,
-          specifications: item.specifications,
-        }));
+        lpoItems = rfq.requisition.items
+          .filter(item => item.unit_price !== null && item.unit_price !== undefined)
+          .map(item => ({
+            item_name: item.item_name,
+            description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            specifications: item.specifications,
+          }));
       }
     }
 
     if (!lpoItems || !Array.isArray(lpoItems) || lpoItems.length === 0) {
-      return res.status(400).json({ error: 'At least one item is required' });
+      return res.status(400).json({ error: 'At least one item with a valid unit price is required' });
     }
 
     // Calculate total amount
