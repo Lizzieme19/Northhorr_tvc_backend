@@ -253,6 +253,9 @@ const adjustStock = async (req, res) => {
 // DELETE /api/inventory/:id - Delete inventory item
 const deleteInventoryItem = async (req, res) => {
   try {
+    // Delete related stock movements first
+    await prisma.stockMovement.deleteMany({ where: { inventory_item_id: req.params.id } });
+    
     await prisma.inventoryItem.delete({ where: { id: req.params.id } });
     res.json({ message: 'Inventory item deleted successfully' });
   } catch (err) {
