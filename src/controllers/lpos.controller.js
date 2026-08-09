@@ -101,8 +101,14 @@ const createLPO = async (req, res) => {
       items,
     } = req.body;
 
-    if (!supplier_id || !department_id || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'Supplier, department, and items are required' });
+    if (!supplier_id) {
+      return res.status(400).json({ error: 'Supplier is required' });
+    }
+    if (!department_id) {
+      return res.status(400).json({ error: 'Department is required' });
+    }
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'At least one item is required' });
     }
 
     // Calculate total amount
