@@ -108,19 +108,23 @@ const createLPO = async (req, res) => {
       return res.status(400).json({ error: 'Department is required' });
     }
 
-    // If items not provided but rfq_id is, fetch items from RFQ
+    // If items not provided but rfq_id is, fetch items from RFQ's requisition
     let lpoItems = items;
     if ((!items || !Array.isArray(items) || items.length === 0) && rfq_id) {
       const rfq = await prisma.rFQ.findUnique({
         where: { id: rfq_id },
-        include: { items: true },
+        include: {
+          requisition: {
+            include: { items: true },
+          },
+        },
       });
-      if (rfq && rfq.items && rfq.items.length > 0) {
-        lpoItems = rfq.items.map(item => ({
+      if (rfq && rfq.requisition && rfq.requisition.items && rfq.requisition.items.length > 0) {
+        lpoItems = rfq.requisition.items.map(item => ({
           item_name: item.item_name,
           description: item.description,
           quantity: item.quantity,
-          unit_price: item.quoted_price || item.estimated_price,
+          unit_price: item.estimated_price,
           specifications: item.specifications,
         }));
       }
