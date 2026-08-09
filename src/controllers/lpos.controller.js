@@ -107,12 +107,31 @@ const createLPO = async (req, res) => {
     if (!department_id) {
       return res.status(400).json({ error: 'Department is required' });
     }
-    if (!items || !Array.isArray(items) || items.length === 0) {
+
+    // If items not provided but rfq_id is, fetch items from RFQ
+    let lpoItems = items;
+    if ((!items || !Array.isArray(items) || items.length === 0) && rfq_id) {
+      const rfq = await prisma.rFQ.findUnique({
+        where: { id: rfq_id },
+        include: { items: true },
+      });
+      if (rfq && rfq.items && rfq.items.length > 0) {
+        lpoItems = rfq.items.map(item => ({
+          item_name: item.item_name,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.quoted_price || item.estimated_price,
+          specifications: item.specifications,
+        }));
+      }
+    }
+
+    if (!lpoItems || !Array.isArray(lpoItems) || lpoItems.length === 0) {
       return res.status(400).json({ error: 'At least one item is required' });
     }
 
     // Calculate total amount
-    const totalAmount = items.reduce((sum, item) => sum + (item.unit_price * item.quantity || 0), 0);
+    const totalAmount = lpoItems.reduce((sum, item) => sum + (item.unit_price * item.quantity || 0), 0);
 
     const lpo = await prisma.lPO.create({
       data: {
@@ -126,7 +145,7 @@ const createLPO = async (req, res) => {
         total_amount: totalAmount,
         currency: 'KES',
         items: {
-          create: items.map(item => ({
+          create: lpoItems.map(item => ({
             item_name: item.item_name,
             description: item.description,
             quantity: item.quantity,
