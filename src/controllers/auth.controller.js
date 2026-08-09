@@ -383,7 +383,7 @@ const deleteUser = async (req, res) => {
     }
 
     // Delete associated staff record if exists (cascade delete)
-    if (user.role === 'STAFF' || user.role === 'HR' || user.role === 'ADMIN') {
+    if (user.role === 'STAFF' || user.role === 'HR' || user.role === 'ADMIN' || user.role === 'DEPT_HEAD') {
       // Delete related records first
       await prisma.leaveBalance.deleteMany({ where: { staff: { user_id: user.id } } });
       await prisma.leaveRequest.deleteMany({ where: { staff: { user_id: user.id } } });
@@ -391,6 +391,10 @@ const deleteUser = async (req, res) => {
       // Delete staff record
       await prisma.staff.deleteMany({ where: { user_id: user.id } });
     }
+
+    // Delete purchase requisitions where user is requester or approver
+    await prisma.purchaseRequisition.deleteMany({ where: { requested_by: user.id } });
+    await prisma.purchaseRequisition.deleteMany({ where: { approved_by: user.id } });
 
     // Delete refresh tokens
     await prisma.refreshToken.deleteMany({ where: { user_id: user.id } });
