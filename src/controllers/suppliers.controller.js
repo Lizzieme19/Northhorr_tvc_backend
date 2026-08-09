@@ -161,7 +161,7 @@ const deleteSupplier = async (req, res) => {
   try {
     const supplier = await prisma.supplier.findUnique({
       where: { id: req.params.id },
-      include: { _count: { select: { lpos: true, invoices: true } } },
+      include: { _count: { select: { lpos: true, invoices: true, quotations: true } } },
     });
 
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
@@ -169,6 +169,9 @@ const deleteSupplier = async (req, res) => {
     if (supplier._count.lpos > 0 || supplier._count.invoices > 0) {
       return res.status(400).json({ error: 'Cannot delete supplier with associated LPOs or invoices' });
     }
+
+    // Delete related quotations first
+    await prisma.quotation.deleteMany({ where: { supplier_id: req.params.id } });
 
     await prisma.supplier.delete({ where: { id: req.params.id } });
     res.json({ message: 'Supplier deleted successfully' });
