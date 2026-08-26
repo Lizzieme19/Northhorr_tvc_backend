@@ -1,5 +1,5 @@
 const prisma = require('../config/db');
-const { uploadToS3 } = require('../config/s3');
+const { uploadToS3 } = require('../middleware/upload');
 
 // GET /api/gallery - Get all gallery items
 const getGallery = async (req, res) => {
