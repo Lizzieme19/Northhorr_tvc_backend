@@ -76,8 +76,8 @@ const createGalleryItem = async (req, res) => {
         description,
         image_url: url,
         category: category || 'GENERAL',
-        is_featured: is_featured || false,
-        display_order: display_order || 0,
+        is_featured: is_featured === 'true' || is_featured === true,
+        display_order: parseInt(display_order) || 0,
         uploaded_by: req.user.id,
       },
       include: {
@@ -101,8 +101,8 @@ const updateGalleryItem = async (req, res) => {
     if (title) updateData.title = title;
     if (description !== undefined) updateData.description = description;
     if (category) updateData.category = category;
-    if (is_featured !== undefined) updateData.is_featured = is_featured;
-    if (display_order !== undefined) updateData.display_order = display_order;
+    if (is_featured !== undefined) updateData.is_featured = is_featured === 'true' || is_featured === true;
+    if (display_order !== undefined) updateData.display_order = parseInt(display_order) || 0;
 
     // If new image uploaded, upload to S3
     if (req.file) {
