@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
-const upload = require('../middleware/upload');
+const { upload } = require('../middleware/upload');
 const {
   getGallery,
   getGalleryItem,
