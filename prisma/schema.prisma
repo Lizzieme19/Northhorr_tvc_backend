@@ -130,6 +130,8 @@ model User {
   uploaded_news     News[]
   approved_lpos      LPO[] @relation("ApprovedBy")
   promoted_progressions StudentProgression[] @relation("ProgressionPromoter")
+  gallery_items     Gallery[]
+  audit_trails      AuditTrail[]
 }
 
 model RefreshToken {
@@ -904,4 +906,22 @@ model AuditTrail {
   user_agent      String?
 
   created_at      DateTime @default(now())
+
+  user            User?    @relation(fields: [user_id], references: [id])
+}
+
+model Gallery {
+  id              String   @id @default(uuid())
+  title           String
+  description     String?
+  image_url       String
+  category        String   @default("GENERAL") // GENERAL, EVENTS, FACILITIES, STUDENTS, STAFF
+  is_featured     Boolean  @default(false)
+  display_order   Int      @default(0)
+  uploaded_by     String
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  uploader        User     @relation(fields: [uploaded_by], references: [id])
 }

@@ -32,6 +32,7 @@ const contactRoutes = require('./routes/contact.routes');
 const feeRoutes = require('./routes/fee.routes');
 const idCardRoutes = require('./routes/idCard.routes');
 const documentsRoutes = require('./routes/documents.routes');
+const galleryRoutes = require('./routes/gallery.routes');
 
 const app = express();
 
@@ -102,6 +103,7 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/fees', feeRoutes);
 app.use('/api', idCardRoutes);
 app.use('/api', documentsRoutes);
+app.use('/api/gallery', galleryRoutes);
 
 // 404 handler
 app.use((req, res) => {
