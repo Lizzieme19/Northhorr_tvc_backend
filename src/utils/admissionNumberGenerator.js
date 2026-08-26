@@ -3,8 +3,8 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 /**
- * Generate admission number in format: DEPT_SHORTCODE/MONTH_SHORTCODE/LEVEL/INCREMENTAL_NUMBER/YEAR
- * Example: AGR/S/L6/001/2026
+ * Generate admission number in format: DEPT_SHORTCODE/LEVEL/INCREMENTAL_NUMBER/YEAR_SHORT/MONTH_SHORTCODE
+ * Example: AGR/L6/001/26/S
  *
  * @param {string} departmentId - Department ID
  * @param {string} level - Student level (e.g., "L3", "L4", "L5")
@@ -36,6 +36,9 @@ async function generateAdmissionNumber(departmentId, level, intakeMonth, year) {
       throw new Error(`Invalid intake month: ${intakeMonth}`);
     }
 
+    // Convert year to 2-digit format
+    const yearShort = year.toString().slice(-2);
+
     // Get the last admission number for this department and year
     const lastStudent = await prisma.student.findFirst({
       where: {
@@ -55,8 +58,8 @@ async function generateAdmissionNumber(departmentId, level, intakeMonth, year) {
     if (lastStudent && lastStudent.admission_no) {
       const parts = lastStudent.admission_no.split('/');
       if (parts.length >= 5) {
-        // Format is DEPT/MONTH/LEVEL/NUM/YEAR, so number is at index 3
-        const lastNumber = parseInt(parts[3], 10);
+        // Format is DEPT/LEVEL/NUM/YEAR_SHORT/MONTH, so number is at index 2
+        const lastNumber = parseInt(parts[2], 10);
         if (!isNaN(lastNumber)) {
           nextNumber = lastNumber + 1;
         }
@@ -66,8 +69,8 @@ async function generateAdmissionNumber(departmentId, level, intakeMonth, year) {
     // Format the number with leading zeros (3 digits)
     const formattedNumber = nextNumber.toString().padStart(3, '0');
 
-    // Construct admission number: DEPT/MONTH/LEVEL/NUM/YEAR
-    const admissionNo = `${department.shortcode}/${monthShortcode}/${level}/${formattedNumber}/${year}`;
+    // Construct admission number: DEPT/LEVEL/NUM/YEAR_SHORT/MONTH
+    const admissionNo = `${department.shortcode}/${level}/${formattedNumber}/${yearShort}/${monthShortcode}`;
 
     return admissionNo;
   } catch (error) {
@@ -96,8 +99,8 @@ function getMonthShortcode(intake) {
  * @returns {boolean} True if valid format
  */
 function validateAdmissionNumberFormat(admissionNo) {
-  // Format: DEPT/MONTH/LEVEL/NUM/YEAR
-  const regex = /^[A-Z]{2,4}\/[JMS]\/L\d\/\d{3}\/\d{4}$/;
+  // Format: DEPT/LEVEL/NUM/YEAR_SHORT/MONTH
+  const regex = /^[A-Z]{2,4}\/L\d\/\d{3}\/\d{2}\/[JMS]$/;
   return regex.test(admissionNo);
 }
 
@@ -114,10 +117,10 @@ function parseAdmissionNumber(admissionNo) {
   const parts = admissionNo.split('/');
   return {
     departmentShortcode: parts[0],
-    monthShortcode: parts[1],
-    level: parts[2],
-    number: parseInt(parts[3], 10),
-    year: parseInt(parts[4], 10)
+    level: parts[1],
+    number: parseInt(parts[2], 10),
+    yearShort: parseInt(parts[3], 10),
+    monthShortcode: parts[4]
   };
 }
 
