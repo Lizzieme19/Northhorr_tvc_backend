@@ -847,6 +847,11 @@ model StudentBalance {
   amount_paid Float    @default(0)
   balance     Float    @default(0)
   status      String   @default("PENDING") // PENDING, PARTIAL, PAID, OVERDUE
+  
+  // Fee carry-over fields
+  previous_balance_carryover Float @default(0) // Amount carried over from previous term (positive = debt, negative = credit)
+  carried_from_term_id        String? // ID of the previous term this balance was carried from
+  carryover_notes             String? // Notes about the carry-over
 
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt

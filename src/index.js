@@ -33,6 +33,7 @@ const feeRoutes = require('./routes/fee.routes');
 const idCardRoutes = require('./routes/idCard.routes');
 const documentsRoutes = require('./routes/documents.routes');
 const galleryRoutes = require('./routes/gallery.routes');
+const termProgressionRoutes = require('./routes/termProgression.routes');
 
 const app = express();
 
@@ -104,6 +105,7 @@ app.use('/api/fees', feeRoutes);
 app.use('/api', idCardRoutes);
 app.use('/api', documentsRoutes);
 app.use('/api/gallery', galleryRoutes);
+app.use('/api/term-progression', termProgressionRoutes);
 
 // 404 handler
 app.use((req, res) => {
