@@ -30,6 +30,7 @@ const getFinanceStudents = async (req, res) => {
           course: { select: { name: true } },
           department: { select: { name: true } },
           fee_records: true,
+          student_balances: { include: { term: true } },
         },
         orderBy: { created_at: 'desc' },
         skip,
