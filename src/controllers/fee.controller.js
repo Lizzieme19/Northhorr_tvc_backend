@@ -157,7 +157,7 @@ const enrollStudentInTerm = async (req, res) => {
   }
 };
 
-// Record fee payment
+// Record fee payment - fee_type_id is optional (Finance Officer can allocate later)
 const recordFeePayment = async (req, res) => {
   try {
     const { studentId, termId } = req.params;
@@ -180,7 +180,7 @@ const recordFeePayment = async (req, res) => {
       return res.status(404).json({ error: 'Student balance record not found' });
     }
 
-    // Create fee record
+    // Create fee record (fee_type_id is optional – Finance Officer can allocate later)
     const feeRecord = await prisma.feeRecord.create({
       data: {
         student_id: studentId,
@@ -188,8 +188,9 @@ const recordFeePayment = async (req, res) => {
         fee_type_id: fee_type_id || null,
         amount,
         received_by: req.user.id,
-        notes,
+        notes: notes || null,
       },
+      include: { feeType: true },
     });
 
     // Update student balance
@@ -210,9 +211,169 @@ const recordFeePayment = async (req, res) => {
       message: 'Payment recorded successfully',
       feeRecord,
       updatedBalance,
+      allocated: !!fee_type_id,
     });
   } catch (err) {
     console.error('Record payment error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// Allocate an unallocated payment to specific fee types (Finance Officer manual allocation)
+// POST /fees/students/:studentId/terms/:termId/allocate
+const allocatePayment = async (req, res) => {
+  try {
+    const { studentId, termId } = req.params;
+    const { allocations, notes } = req.body;
+    // allocations: [{ fee_type_id: string, amount: number }]
+
+    if (!allocations || !Array.isArray(allocations) || allocations.length === 0) {
+      return res.status(400).json({ error: 'allocations array is required' });
+    }
+
+    const totalAllocating = allocations.reduce((sum, a) => sum + (parseFloat(a.amount) || 0), 0);
+    if (totalAllocating <= 0) {
+      return res.status(400).json({ error: 'Total allocation amount must be greater than 0' });
+    }
+
+    // Get current unallocated payment total for this student & term
+    const unallocatedRecords = await prisma.feeRecord.findMany({
+      where: {
+        student_id: studentId,
+        term_id: termId,
+        fee_type_id: null,
+      },
+    });
+    const unallocatedTotal = unallocatedRecords.reduce((sum, r) => sum + r.amount, 0);
+
+    // Get already allocated total for this term
+    const allocatedRecords = await prisma.feeRecord.findMany({
+      where: {
+        student_id: studentId,
+        term_id: termId,
+        fee_type_id: { not: null },
+      },
+    });
+    const alreadyAllocated = allocatedRecords.reduce((sum, r) => sum + r.amount, 0);
+    const availableToAllocate = unallocatedTotal - alreadyAllocated;
+
+    if (totalAllocating > availableToAllocate + 0.01) {
+      return res.status(400).json({
+        error: `Cannot allocate KES ${totalAllocating}. Only KES ${availableToAllocate.toFixed(2)} is available to allocate.`,
+        unallocatedTotal,
+        alreadyAllocated,
+        availableToAllocate,
+      });
+    }
+
+    // Validate all fee types exist
+    const feeTypeIds = allocations.map((a) => a.fee_type_id);
+    const feeTypes = await prisma.feeType.findMany({
+      where: { id: { in: feeTypeIds } },
+    });
+    if (feeTypes.length !== feeTypeIds.length) {
+      return res.status(400).json({ error: 'One or more fee types not found' });
+    }
+
+    // Create allocation records
+    const createdRecords = [];
+    for (const allocation of allocations) {
+      if (!allocation.amount || parseFloat(allocation.amount) <= 0) continue;
+      const record = await prisma.feeRecord.create({
+        data: {
+          student_id: studentId,
+          term_id: termId,
+          fee_type_id: allocation.fee_type_id,
+          amount: parseFloat(allocation.amount),
+          received_by: req.user.id,
+          notes: notes || `Manual allocation by finance officer`,
+        },
+        include: { feeType: true },
+      });
+      createdRecords.push(record);
+    }
+
+    res.json({
+      message: 'Payment allocated successfully',
+      allocations: createdRecords,
+      totalAllocated: totalAllocating,
+    });
+  } catch (err) {
+    console.error('Allocate payment error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// Get allocation breakdown for a student term
+// GET /fees/students/:studentId/terms/:termId/allocations
+const getAllocationBreakdown = async (req, res) => {
+  try {
+    const { studentId, termId } = req.params;
+
+    const studentBalance = await prisma.studentBalance.findUnique({
+      where: { student_term: { student_id: studentId, term_id: termId } },
+      include: { term: true },
+    });
+    if (!studentBalance) {
+      return res.status(404).json({ error: 'Student balance not found for this term' });
+    }
+
+    // All fee records for this student+term
+    const feeRecords = await prisma.feeRecord.findMany({
+      where: { student_id: studentId, term_id: termId },
+      include: { feeType: true },
+      orderBy: { paid_at: 'asc' },
+    });
+
+    const unallocated = feeRecords.filter((r) => !r.fee_type_id);
+    const allocated = feeRecords.filter((r) => !!r.fee_type_id);
+    const totalPaid = feeRecords.reduce((sum, r) => sum + r.amount, 0);
+    const totalAllocated = allocated.reduce((sum, r) => sum + r.amount, 0);
+    const totalUnallocated = totalPaid - totalAllocated;
+
+    // Get all applicable fee types for this student
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: { course_id: true, level: true },
+    });
+    const applicableFeeTypes = await prisma.feeType.findMany({
+      where: {
+        is_active: true,
+        is_disabled: false,
+        OR: [
+          { applies_to: 'ALL' },
+          { applies_to: 'SPECIFIC_LEVEL', level: student?.level },
+          { applies_to: 'SPECIFIC_COURSE', course_id: student?.course_id },
+        ],
+      },
+    });
+
+    // Build allocation summary per fee type
+    const feeTypeBreakdown = applicableFeeTypes.map((ft) => {
+      const ftRecords = allocated.filter((r) => r.fee_type_id === ft.id);
+      const amountPaid = ftRecords.reduce((sum, r) => sum + r.amount, 0);
+      return {
+        fee_type: { id: ft.id, name: ft.name, code: ft.code, amount: ft.amount, term_based: ft.term_based },
+        amount_paid: amountPaid,
+        required_amount: ft.amount,
+        balance: Math.max(0, ft.amount - amountPaid),
+        status: amountPaid >= ft.amount ? 'PAID' : amountPaid > 0 ? 'PARTIAL' : 'PENDING',
+        records: ftRecords,
+      };
+    });
+
+    res.json({
+      balance: studentBalance,
+      totalPaid,
+      totalAllocated,
+      totalUnallocated,
+      unallocatedRecords: unallocated,
+      allocatedRecords: allocated,
+      feeTypeBreakdown,
+      applicableFeeTypes,
+    });
+  } catch (err) {
+    console.error('Get allocation breakdown error:', err);
     res.status(500).json({ error: err.message || 'Server error' });
   }
 };
@@ -732,6 +893,8 @@ module.exports = {
   calculateTermFees,
   enrollStudentInTerm,
   recordFeePayment,
+  allocatePayment,
+  getAllocationBreakdown,
   bulkRecordFeePayment,
   getStudentFeeSummary,
   promoteStudent,

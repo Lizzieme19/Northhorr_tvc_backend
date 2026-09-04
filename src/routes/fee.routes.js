@@ -3,6 +3,8 @@ const router = express.Router();
 const {
   enrollStudentInTerm,
   recordFeePayment,
+  allocatePayment,
+  getAllocationBreakdown,
   bulkRecordFeePayment,
   getStudentFeeSummary,
   promoteStudent,
@@ -86,6 +88,12 @@ router.post('/students/:studentId/terms/:termId/enroll', authenticate, requireRo
  *         description: Payment recorded successfully
  */
 router.post('/students/:studentId/terms/:termId/payment', authenticate, requireRoles('ADMIN', 'FINANCE'), recordFeePayment);
+
+// POST /api/fees/students/:studentId/terms/:termId/allocate - Finance Officer allocates unallocated payment to fee types
+router.post('/students/:studentId/terms/:termId/allocate', authenticate, requireRoles('ADMIN', 'FINANCE'), allocatePayment);
+
+// GET /api/fees/students/:studentId/terms/:termId/allocations - Get allocation breakdown for a term
+router.get('/students/:studentId/terms/:termId/allocations', authenticate, requireRoles('ADMIN', 'FINANCE'), getAllocationBreakdown);
 
 /**
  * @swagger
