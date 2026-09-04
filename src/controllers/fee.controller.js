@@ -243,27 +243,35 @@ const allocatePayment = async (req, res) => {
         term_id: termId,
         fee_type_id: null,
       },
+      orderBy: { paid_at: 'asc' },
     });
     const unallocatedTotal = unallocatedRecords.reduce((sum, r) => sum + r.amount, 0);
-
-    // Get already allocated total for this term
-    const allocatedRecords = await prisma.feeRecord.findMany({
-      where: {
-        student_id: studentId,
-        term_id: termId,
-        fee_type_id: { not: null },
-      },
-    });
-    const alreadyAllocated = allocatedRecords.reduce((sum, r) => sum + r.amount, 0);
-    const availableToAllocate = unallocatedTotal - alreadyAllocated;
+    const availableToAllocate = unallocatedTotal;
 
     if (totalAllocating > availableToAllocate + 0.01) {
       return res.status(400).json({
         error: `Cannot allocate KES ${totalAllocating}. Only KES ${availableToAllocate.toFixed(2)} is available to allocate.`,
-        unallocatedTotal,
-        alreadyAllocated,
         availableToAllocate,
       });
+    }
+
+    // Deduct allocated amounts from the unallocated records
+    let remainingToDeduct = totalAllocating;
+    for (const record of unallocatedRecords) {
+      if (remainingToDeduct <= 0.01) break;
+      const deduct = Math.min(record.amount, remainingToDeduct);
+      
+      if (record.amount - deduct <= 0.01) {
+        // Fully consumed, delete the unallocated record
+        await prisma.feeRecord.delete({ where: { id: record.id } });
+      } else {
+        // Partially consumed, reduce its amount
+        await prisma.feeRecord.update({
+          where: { id: record.id },
+          data: { amount: record.amount - deduct },
+        });
+      }
+      remainingToDeduct -= deduct;
     }
 
     // Validate all fee types exist
@@ -329,7 +337,7 @@ const getAllocationBreakdown = async (req, res) => {
     const allocated = feeRecords.filter((r) => !!r.fee_type_id);
     const totalPaid = feeRecords.reduce((sum, r) => sum + r.amount, 0);
     const totalAllocated = allocated.reduce((sum, r) => sum + r.amount, 0);
-    const totalUnallocated = totalPaid - totalAllocated;
+    const totalUnallocated = unallocated.reduce((sum, r) => sum + r.amount, 0);
 
     // Get all applicable fee types for this student
     const student = await prisma.student.findUnique({
