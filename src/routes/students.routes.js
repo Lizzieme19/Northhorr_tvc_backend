@@ -21,6 +21,7 @@ const {
   getMyEnrollments,
   assignStudentTerm,
   bulkAssignTerm,
+  importStudentsCsv,
 } = require('../controllers/students.controller');
 
 /**
@@ -440,5 +441,29 @@ router.post('/:id/term/:termId', authenticate, requireRoles('ADMIN'), assignStud
  *         description: Bulk term assignment completed
  */
 router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), bulkAssignTerm);
+
+/**
+ * @swagger
+ * /api/students/import/csv:
+ *   post:
+ *     summary: Import current students via CSV (Admin only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               csv_file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: CSV import results
+ */
+router.post('/import/csv', authenticate, requireRoles('ADMIN'), upload.single('csv_file'), importStudentsCsv);
 
 module.exports = router;

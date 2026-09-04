@@ -7,6 +7,9 @@ const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = re
 const fs = require('fs');
 const path = require('path');
 const { createStudentBalance, canEnrollInTerm } = require('../utils/termHelper');
+const csv = require('csv-parser');
+const { Readable } = require('stream');
+const bcrypt = require('bcryptjs');
 
 const studentIncludes = {
   user: { select: { id: true, email: true, role: true } },
@@ -896,4 +899,137 @@ const uploadMyDocuments = async (req, res) => {
   }
 };
 
-module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, uploadMyDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm, getMyEnrollments, assignStudentTerm, bulkAssignTerm };
+// Helper for CSV Application numbers
+const generateAppNo = () => {
+  const year = new Date().getFullYear();
+  const rand = Math.floor(100000 + Math.random() * 900000);
+  return `NTVC/APP/${year}/${rand}`;
+};
+
+// POST /api/students/import/csv
+const importStudentsCsv = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'CSV file is required' });
+    }
+
+    const results = [];
+    const errors = [];
+    let successCount = 0;
+
+    const stream = Readable.from(req.file.buffer.toString());
+    await new Promise((resolve, reject) => {
+      stream
+        .pipe(csv())
+        .on('data', (row) => results.push(row))
+        .on('end', resolve)
+        .on('error', reject);
+    });
+
+    const courses = await prisma.course.findMany({ include: { department: true } });
+
+    for (const [index, row] of results.entries()) {
+      try {
+        const admission_no = row.admission_no || row.registration_number || row.reg_no || generateAdmissionNumber();
+        const surname = row.surname || row.last_name || row.Surname || 'Unknown';
+        const other_names = row.other_names || row.first_name || row['Other Names'] || '';
+        const email = row.email || row.Email || `${admission_no.replace(/\//g, '').toLowerCase()}@ntvc.ac.ke`;
+        const phone = row.phone || row.Phone || '0000000000';
+        const level = row.level || row.Level || 'Level 5';
+        const gender = row.gender || row.Gender || 'Other';
+        const courseStr = row.course || row.Course || row.course_name || '';
+
+        // Find course
+        const courseMatch = courses.find(c => 
+          c.name.toLowerCase() === courseStr.toLowerCase() || 
+          c.shortcode.toLowerCase() === courseStr.toLowerCase() ||
+          c.id === courseStr
+        );
+
+        if (!courseMatch) {
+          throw new Error(`Course '${courseStr}' not found in database.`);
+        }
+
+        // Check if admission number exists
+        const existingStudent = await prisma.student.findUnique({ where: { admission_no } });
+        if (existingStudent) {
+          throw new Error(`Admission number ${admission_no} already exists.`);
+        }
+
+        // Check if user email exists
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser) {
+          throw new Error(`User with email ${email} already exists.`);
+        }
+
+        const hashedPassword = await bcrypt.hash('Northhorr@2026', 12);
+        
+        await prisma.$transaction(async (tx) => {
+          const user = await tx.user.create({
+            data: {
+              email,
+              password: hashedPassword,
+              role: 'STUDENT',
+              must_change_password: true,
+              is_active: true,
+            }
+          });
+
+          const application = await tx.application.create({
+            data: {
+              application_no: generateAppNo(),
+              type: 'DIRECT',
+              surname,
+              other_names,
+              gender,
+              date_of_birth: new Date('2000-01-01'),
+              email,
+              phone,
+              course_id: courseMatch.id,
+              department_id: courseMatch.department_id,
+              level_applied: level,
+              status: 'APPROVED',
+            }
+          });
+
+          await tx.student.create({
+            data: {
+              admission_no,
+              user_id: user.id,
+              application_id: application.id,
+              course_id: courseMatch.id,
+              department_id: courseMatch.department_id,
+              level,
+              intake: 'SEPTEMBER',
+              year: new Date().getFullYear(),
+            }
+          });
+        });
+        
+        successCount++;
+      } catch (e) {
+        errors.push({ rowNumber: index + 2, row, error: e.message });
+      }
+    }
+
+    res.json({
+      message: 'CSV import processed',
+      summary: {
+        total: results.length,
+        successful: successCount,
+        failed: errors.length,
+      },
+      errors,
+    });
+  } catch (err) {
+    console.error('CSV import error:', err);
+    res.status(500).json({ error: 'Import failed' });
+  }
+};
+
+module.exports = {
+  getStudents, getStudentById, getMyProfile, updateStudent,
+  updateMyProfile, uploadPhoto, uploadStudentDocuments, uploadMyDocuments, getStudentStats,
+  uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm,
+  getMyEnrollments, assignStudentTerm, bulkAssignTerm, importStudentsCsv
+};
