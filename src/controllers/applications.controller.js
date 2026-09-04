@@ -260,6 +260,9 @@ const updateApplicationStatus = async (req, res) => {
           id_copy_back_url: application.id_copy_back_url,
           parent_id_copy_front_url: application.parent_id_copy_front_url,
           parent_id_copy_back_url: application.parent_id_copy_back_url,
+          kcse_certificate_url: application.doc_kcse,
+          birth_certificate_url: application.doc_birth_cert,
+          medical_report_url: application.doc_medical,
           status: 'ACTIVE',
         },
       });
