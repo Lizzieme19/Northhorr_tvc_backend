@@ -833,4 +833,67 @@ const bulkAssignTerm = async (req, res) => {
   }
 };
 
-module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm, getMyEnrollments, assignStudentTerm, bulkAssignTerm };
+// PATCH /api/students/me/documents - Student self-service document upload
+const uploadMyDocuments = async (req, res) => {
+  try {
+    const student = await prisma.student.findUnique({ where: { user_id: req.user.id } });
+    if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    const {
+      medical_report,
+      kcse_certificate,
+      birth_certificate,
+      other_documents,
+    } = req.files || {};
+
+    const updateData = {};
+
+    if (medical_report) {
+      const { url } = await uploadToS3(medical_report[0].buffer, medical_report[0].originalname, 'student-documents');
+      updateData.medical_report_url = url;
+    }
+    if (kcse_certificate) {
+      const { url } = await uploadToS3(kcse_certificate[0].buffer, kcse_certificate[0].originalname, 'student-documents');
+      updateData.kcse_certificate_url = url;
+    }
+    if (birth_certificate) {
+      const { url } = await uploadToS3(birth_certificate[0].buffer, birth_certificate[0].originalname, 'student-documents');
+      updateData.birth_certificate_url = url;
+    }
+    if (other_documents) {
+      const { url } = await uploadToS3(other_documents[0].buffer, other_documents[0].originalname, 'student-documents');
+      updateData.other_documents_url = url;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'At least one document file is required' });
+    }
+
+    const updated = await prisma.student.update({
+      where: { user_id: req.user.id },
+      data: updateData,
+      include: {
+        application: { select: { surname: true, other_names: true, email: true } },
+        course: { select: { name: true } },
+        department: { select: { name: true } },
+      },
+    });
+
+    res.json({
+      message: 'Documents uploaded successfully',
+      student: {
+        id: updated.id,
+        admission_no: updated.admission_no,
+        medical_report_url: updated.medical_report_url,
+        kcse_certificate_url: updated.kcse_certificate_url,
+        birth_certificate_url: updated.birth_certificate_url,
+        other_documents_url: updated.other_documents_url,
+      },
+    });
+  } catch (err) {
+    console.error('Student document upload error:', err);
+    res.status(500).json({ error: 'Failed to upload documents' });
+  }
+};
+
+module.exports = { getStudents, getStudentById, getMyProfile, updateStudent, updateMyProfile, uploadPhoto, uploadStudentDocuments, uploadMyDocuments, getStudentStats, uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm, getMyEnrollments, assignStudentTerm, bulkAssignTerm };

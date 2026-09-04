@@ -12,6 +12,7 @@ const {
   updateMyProfile,
   uploadPhoto,
   uploadStudentDocuments,
+  uploadMyDocuments,
   getStudentStats,
   uploadMyProfilePicture,
   generateIdCard,
@@ -137,6 +138,44 @@ router.patch('/me', authenticate, requireRoles('STUDENT'), requirePasswordChange
  *         description: Profile picture uploaded
  */
 router.patch('/me/profile-picture', authenticate, requireRoles('STUDENT'), requirePasswordChange, upload.single('profile_picture'), uploadMyProfilePicture);
+
+/**
+ * @swagger
+ * /api/students/me/documents:
+ *   patch:
+ *     summary: Upload student supporting documents (Student self-service)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               medical_report:
+ *                 type: string
+ *                 format: binary
+ *               kcse_certificate:
+ *                 type: string
+ *                 format: binary
+ *               birth_certificate:
+ *                 type: string
+ *                 format: binary
+ *               other_documents:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Documents uploaded successfully
+ */
+router.patch('/me/documents', authenticate, requireRoles('STUDENT'), requirePasswordChange, upload.fields([
+  { name: 'medical_report', maxCount: 1 },
+  { name: 'kcse_certificate', maxCount: 1 },
+  { name: 'birth_certificate', maxCount: 1 },
+  { name: 'other_documents', maxCount: 1 },
+]), uploadMyDocuments);
 
 /**
  * @swagger
