@@ -33,7 +33,7 @@ const admitStudentToTerm = async (req, res) => {
     // Check if student already has a balance for this term
     const existingBalance = await prisma.studentBalance.findUnique({
       where: {
-        student_id_term_id: {
+        student_term: {
           student_id,
           term_id: new_term_id,
         },
@@ -52,7 +52,7 @@ const admitStudentToTerm = async (req, res) => {
     if (student.current_term_id) {
       const previousBalance = await prisma.studentBalance.findUnique({
         where: {
-          student_id_term_id: {
+          student_term: {
             student_id,
             term_id: student.current_term_id,
           },

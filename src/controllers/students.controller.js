@@ -141,7 +141,7 @@ const getStudentById = async (req, res) => {
 // PATCH /api/students/:id
 const updateStudent = async (req, res) => {
   try {
-    const { level, intake, year, status, helb_applied, course_id, department_id,
+    const { admission_no, level, intake, year, status, helb_applied, course_id, department_id,
           profile_picture_url, id_copy_front_url, id_copy_back_url,
           parent_id_copy_front_url, parent_id_copy_back_url,
           // Parent information
@@ -168,6 +168,7 @@ const updateStudent = async (req, res) => {
     const updated = await prisma.student.update({
       where: { id: req.params.id },
       data: {
+        ...(admission_no && { admission_no }),
         ...(level && { level }),
         ...(intake && { intake }),
         ...(year && { year: parseInt(year) }),

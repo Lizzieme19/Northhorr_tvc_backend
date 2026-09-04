@@ -231,7 +231,7 @@ const updateApplicationStatus = async (req, res) => {
 
       // Use the new admission number generator
       const admissionNo = await generateAdmissionNumber(
-        application.department_id,
+        application.course_id,
         levelCode,
         studentIntake,
         studentYear
