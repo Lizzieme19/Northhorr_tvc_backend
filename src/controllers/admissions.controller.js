@@ -1,4 +1,6 @@
 const PDFDocument = require('pdfkit');
+const path = require('path');
+const fs = require('fs');
 const { uploadToS3 } = require('../middleware/upload');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const { s3Client, BUCKET_NAME } = require('../config/s3');
@@ -79,8 +81,8 @@ const downloadLetter = async (req, res) => {
 };
 
 // PDF Generation Helper
-const generateAdmissionPDF = (student) => {
-  return new Promise((resolve, reject) => {
+const generateAdmissionPDF = async (student) => {
+  return new Promise(async (resolve, reject) => {
     const doc = new PDFDocument({ margin: 60, size: 'A4' });
     const chunks = [];
 
@@ -95,6 +97,17 @@ const generateAdmissionPDF = (student) => {
     });
 
     // ── Header ──────────────────────────────────────────────
+    const ministryLogoPath = path.join(__dirname, '../../public/Ministry.png');
+    const collegeLogoPath = path.join(__dirname, '../../public/logo.png');
+
+    if (fs.existsSync(ministryLogoPath)) {
+      doc.image(ministryLogoPath, 60, 40, { width: 70 });
+    }
+    if (fs.existsSync(collegeLogoPath)) {
+      doc.image(collegeLogoPath, 465, 40, { width: 70 });
+    }
+
+    doc.y = 50; // Adjust starting y for text
     doc.fontSize(18).font('Helvetica-Bold')
       .fillColor('#1F6F4A')
       .text('NORTH HORR TECHNICAL AND VOCATIONAL COLLEGE', { align: 'center' });
@@ -174,15 +187,46 @@ const generateAdmissionPDF = (student) => {
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#1F6F4A').text('FEES PAYABLE ON REPORTING', 60);
     doc.font('Helvetica').fontSize(10).fillColor('#333').moveDown(0.3);
 
-    const fees = [
-      ['Admission Fee', 'KES 1,500'],
-      ['Student ID Fee', 'KES 500'],
-      ...(app.type === 'DIRECT' ? [['KUCCPS Processing Fee', 'KES 500']] : []),
-    ];
-    fees.forEach(([item, amount]) => {
-      doc.text(`• ${item}:`, 70, doc.y, { continued: true }).font('Helvetica-Bold').text(`  ${amount}`);
-      doc.font('Helvetica');
-    });
+    try {
+      const activeFees = await prisma.feeType.findMany({
+        where: { is_active: true }
+      });
+
+      // Filter one-time fees
+      const oneTimeFees = activeFees.filter(f => !f.term_based);
+      let feeList = oneTimeFees.map(f => [f.name, `KES ${f.amount.toLocaleString()}`]);
+
+      // If there's a tuition fee for Term 1, you might include it
+      const tuitionFee = activeFees.find(f => f.code === 'TUITION');
+      if (tuitionFee) {
+         // feeList.push(['Term 1 Tuition Fee', `KES ${tuitionFee.amount.toLocaleString()}`]);
+      }
+
+      // If empty, fallback
+      if (feeList.length === 0) {
+        feeList = [
+          ['Admission Fee', 'KES 1,500'],
+          ['Student ID Fee', 'KES 500'],
+          ...(app.type === 'DIRECT' ? [['KUCCPS Processing Fee', 'KES 500']] : []),
+        ];
+      }
+
+      feeList.forEach(([item, amount]) => {
+        doc.text(`• ${item}:`, 70, doc.y, { continued: true }).font('Helvetica-Bold').text(`  ${amount}`);
+        doc.font('Helvetica');
+      });
+    } catch (e) {
+      console.error('Failed to fetch fee types for letter:', e);
+      const fallbackFees = [
+        ['Admission Fee', 'KES 1,500'],
+        ['Student ID Fee', 'KES 500'],
+        ...(app.type === 'DIRECT' ? [['KUCCPS Processing Fee', 'KES 500']] : []),
+      ];
+      fallbackFees.forEach(([item, amount]) => {
+        doc.text(`• ${item}:`, 70, doc.y, { continued: true }).font('Helvetica-Bold').text(`  ${amount}`);
+        doc.font('Helvetica');
+      });
+    }
 
     doc.moveDown(0.5);
     doc.font('Helvetica').text(
