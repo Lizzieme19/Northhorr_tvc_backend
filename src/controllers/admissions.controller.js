@@ -6,7 +6,6 @@ const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const { s3Client, BUCKET_NAME } = require('../config/s3');
 const prisma = require('../config/db');
 const { generateAdmissionLetter } = require('../services/documentService');
-const prisma = require('../config/db');
 
 // POST /api/admissions/generate/:student_id
 const generateLetter = async (req, res) => {
