@@ -9,6 +9,7 @@ const {
   updateInvoice,
   recordPayment,
   deleteInvoice,
+  generateInvoicePDF,
 } = require('../controllers/invoices.controller');
 
 /**
@@ -103,6 +104,31 @@ router.post('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), createInvoi
  *         description: Invoice details
  */
 router.get('/:id', authenticate, getInvoiceById);
+
+/**
+ * @swagger
+ * /api/invoices/{id}/pdf:
+ *   get:
+ *     summary: Generate Invoice PDF document
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Invoice PDF
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ */
+router.get('/:id/pdf', authenticate, requireRoles('ADMIN', 'PROCUREMENT', 'FINANCE'), generateInvoicePDF);
 
 /**
  * @swagger

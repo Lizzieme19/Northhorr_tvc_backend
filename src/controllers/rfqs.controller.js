@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { generateRFQ } = require('../services/documentService');
 
 // Generate RFQ number
 const generateRFQNo = () => {
@@ -256,6 +257,40 @@ const deleteRFQ = async (req, res) => {
   }
 };
 
+// GET /api/rfqs/:id/pdf - Generate RFQ PDF
+const generateRFQPDF = async (req, res) => {
+  try {
+    const rfq = await prisma.rFQ.findUnique({
+      where: { id: req.params.id },
+      include: {
+        requisition: {
+          include: {
+            department: { select: { name: true } },
+            requester: { select: { email: true } },
+            items: true,
+          },
+        },
+        supplier: true,
+        quotations: {
+          include: { supplier: true },
+        },
+        lpos: true,
+      },
+    });
+
+    if (!rfq) return res.status(404).json({ error: 'RFQ not found' });
+
+    const pdfBuffer = await generateRFQ(rfq);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${rfq.rfq_no.replace(/\//g, '_')}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('PDF generation error:', err);
+    res.status(500).json({ error: 'Failed to generate PDF' });
+  }
+};
+
 module.exports = {
   getRFQs,
   getRFQById,
@@ -264,4 +299,5 @@ module.exports = {
   submitQuotation,
   selectQuotation,
   deleteRFQ,
+  generateRFQPDF,
 };

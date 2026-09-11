@@ -10,6 +10,7 @@ const {
   submitQuotation,
   selectQuotation,
   deleteRFQ,
+  generateRFQPDF,
 } = require('../controllers/rfqs.controller');
 
 /**
@@ -89,6 +90,31 @@ router.post('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), createRFQ);
  *         description: RFQ details
  */
 router.get('/:id', authenticate, getRFQById);
+
+/**
+ * @swagger
+ * /api/rfqs/{id}/pdf:
+ *   get:
+ *     summary: Generate RFQ PDF document
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: RFQ PDF
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ */
+router.get('/:id/pdf', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), generateRFQPDF);
 
 /**
  * @swagger

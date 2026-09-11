@@ -1,5 +1,5 @@
 const prisma = require('../config/db');
-const PDFDocument = require('pdfkit');
+const { generateLPO } = require('../services/documentService');
 
 // Generate LPO number
 const generateLPONo = () => {
@@ -228,83 +228,13 @@ const generateLPOPDF = async (req, res) => {
 
     if (!lpo) return res.status(404).json({ error: 'LPO not found' });
 
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    const buffers = [];
+    const pdfBuffer = await generateLPO(lpo);
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${lpo.lpo_no.replace(/\//g, '_')}.pdf"`);
+    res.send(pdfBuffer);
 
-    doc.on('data', buffers.push.bind(buffers));
 
-    // Header
-    doc.fontSize(20).font('Helvetica-Bold').text('NORTH HORR TECHNICAL & VOCATIONAL COLLEGE', { align: 'center' });
-    doc.fontSize(14).font('Helvetica').text('Local Purchase Order', { align: 'center' });
-    doc.moveDown();
-
-    // LPO Details
-    doc.fontSize(12).font('Helvetica-Bold').text(`LPO No: ${lpo.lpo_no}`);
-    doc.fontSize(12).font('Helvetica').text(`Issue Date: ${lpo.issue_date ? lpo.issue_date.toLocaleDateString() : 'N/A'}`);
-    doc.fontSize(12).font('Helvetica').text(`Status: ${lpo.status}`);
-    doc.moveDown();
-
-    // Supplier Details
-    doc.fontSize(14).font('Helvetica-Bold').text('Supplier Details:');
-    doc.fontSize(12).font('Helvetica').text(`Name: ${lpo.supplier.name}`);
-    doc.fontSize(12).font('Helvetica').text(`Contact: ${lpo.supplier.contact_person || 'N/A'}`);
-    doc.fontSize(12).font('Helvetica').text(`Phone: ${lpo.supplier.phone}`);
-    doc.fontSize(12).font('Helvetica').text(`Email: ${lpo.supplier.email || 'N/A'}`);
-    doc.moveDown();
-
-    // Department
-    doc.fontSize(14).font('Helvetica-Bold').text('Department:');
-    doc.fontSize(12).font('Helvetica').text(lpo.department.name);
-    doc.moveDown();
-
-    // Items Table
-    doc.fontSize(14).font('Helvetica-Bold').text('Items:');
-    doc.moveDown();
-
-    let y = doc.y;
-    doc.fontSize(10).font('Helvetica-Bold');
-    doc.text('Item', 50, y);
-    doc.text('Qty', 300, y);
-    doc.text('Unit Price', 350, y);
-    doc.text('Total', 450, y);
-
-    y += 20;
-    doc.fontSize(10).font('Helvetica');
-    lpo.items.forEach((item) => {
-      doc.text(item.item_name, 50, y);
-      doc.text(item.quantity.toString(), 300, y);
-      doc.text(`KES ${item.unit_price.toLocaleString()}`, 350, y);
-      doc.text(`KES ${item.total_price.toLocaleString()}`, 450, y);
-      y += 20;
-    });
-
-    // Total
-    y += 10;
-    doc.fontSize(12).font('Helvetica-Bold').text(`Total Amount: KES ${lpo.total_amount.toLocaleString()}`, 350, y);
-
-    // Payment Terms
-    doc.moveDown();
-    doc.fontSize(14).font('Helvetica-Bold').text('Payment Terms:');
-    doc.fontSize(12).font('Helvetica').text(lpo.payment_terms || 'N/A');
-
-    // Delivery Date
-    doc.moveDown();
-    doc.fontSize(14).font('Helvetica-Bold').text('Expected Delivery:');
-    doc.fontSize(12).font('Helvetica').text(lpo.delivery_date ? lpo.delivery_date.toLocaleDateString() : 'N/A');
-
-    // Footer
-    doc.moveDown(2);
-    doc.fontSize(10).font('Helvetica').text('This is a computer-generated document.', { align: 'center' });
-    doc.fontSize(10).font('Helvetica').text('North Horr Technical & Vocational College.', { align: 'center' });
-
-    doc.end();
-
-    doc.on('end', () => {
-      const pdfBuffer = Buffer.concat(buffers);
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${lpo.lpo_no}.pdf"`);
-      res.send(pdfBuffer);
-    });
   } catch (err) {
     console.error('PDF generation error:', err);
     res.status(500).json({ error: 'Failed to generate PDF' });

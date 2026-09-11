@@ -930,3 +930,29 @@ model Gallery {
 
   uploader        User     @relation(fields: [uploaded_by], references: [id])
 }
+
+enum DocumentType {
+  ADMISSION_LETTER
+  ACCEPTANCE_LETTER
+  TRAINING_ADMISSION
+  FEE_STRUCTURE
+  PERSONAL_INFO
+  LPO
+  RFQ
+  GRN
+  SUPPLIER_INVOICE
+}
+
+model DocumentTemplate {
+  id              String       @id @default(uuid())
+  document_type   DocumentType @unique
+  
+  ministry_logo_url String?
+  college_logo_url  String?
+  
+  text_blocks     Json?
+  available_vars  Json? 
+  
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+}

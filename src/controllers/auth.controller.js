@@ -358,11 +358,14 @@ const updateUserStatus = async (req, res) => {
 
     res.json(updated);
   } catch (err) {
-    console.error('Update user status error:', err);
+    console.error('Update user status error:', err.message || err);
     if (err.code === 'P2002') {
       return res.status(400).json({ error: 'Email already exists' });
     }
-    res.status(500).json({ error: err.message || 'Server error' });
+    if (err.code === 'P2025') {
+      return res.status(400).json({ error: 'Department or related record not found' });
+    }
+    res.status(500).json({ error: 'Server error' });
   }
 };
 

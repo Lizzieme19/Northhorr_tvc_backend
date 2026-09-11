@@ -8,6 +8,7 @@ const {
   createGRN,
   verifyGRN,
   deleteGRN,
+  generateGRNPDF,
 } = require('../controllers/grns.controller');
 
 /**
@@ -85,6 +86,31 @@ router.post('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), createGRN);
  *         description: GRN details
  */
 router.get('/:id', authenticate, getGRNById);
+
+/**
+ * @swagger
+ * /api/grns/{id}/pdf:
+ *   get:
+ *     summary: Generate GRN PDF document
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: GRN PDF
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ */
+router.get('/:id/pdf', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), generateGRNPDF);
 
 /**
  * @swagger

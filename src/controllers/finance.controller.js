@@ -1,5 +1,5 @@
 const prisma = require('../config/db');
-const { sendFeeReminder } = require('../services/emailService');
+// const { sendFeeReminder } = require('../services/emailService');
 
 // Generate unique reference code for fee payments
 const generateReferenceCode = () => {
@@ -171,10 +171,10 @@ const markFeePaid = async (req, res) => {
     
     const feeAmount = parseFloat(amount) || feeType.amount;
     
-    // Send email asynchronously
-    sendFeeReminder(updated.application?.email, studentData, feeType.name, feeAmount).catch(err => {
-      console.error('Failed to send fee email:', err);
-    });
+    // Fee reminders are disabled as per request
+    // sendFeeReminder(updated.application?.email, studentData, feeType.name, feeAmount).catch(err => {
+    //   console.error('Failed to send fee email:', err);
+    // });
 
     res.json({ message: `${feeType.name} fee marked as paid`, student: updated, fee_record: feeRecord });
   } catch (err) {

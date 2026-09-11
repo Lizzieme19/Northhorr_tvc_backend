@@ -4,7 +4,7 @@ const {
   generateAdmissionForTraining,
   generateFeeStructure,
   generateStudentPersonalInfo,
-} = require('../utils/documentGenerator');
+} = require('../services/documentService');
 
 /**
  * GET /api/students/:id/documents/letter-of-acceptance
@@ -30,10 +30,10 @@ const getLetterOfAcceptance = async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    const docBuffer = generateLetterOfAcceptance(student);
+    const docBuffer = await generateLetterOfAcceptance(student);
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="Letter_of_Acceptance_${student.admission_no}.docx"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Letter_of_Acceptance_${student.admission_no.replace(/\//g, '_')}.pdf"`);
     res.send(docBuffer);
   } catch (err) {
     console.error(err);
@@ -65,10 +65,10 @@ const getAdmissionForTraining = async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    const docBuffer = generateAdmissionForTraining(student);
+    const docBuffer = await generateAdmissionForTraining(student);
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="Admission_for_Training_${student.admission_no}.docx"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Admission_for_Training_${student.admission_no.replace(/\//g, '_')}.pdf"`);
     res.send(docBuffer);
   } catch (err) {
     console.error(err);
@@ -111,10 +111,11 @@ const getFeeStructure = async (req, res) => {
       student.semester = student.feeRecords[0].semester;
     }
 
-    const docBuffer = generateFeeStructure(student);
+    const activeFees = await prisma.feeType.findMany({ where: { is_active: true } });
+    const docBuffer = await generateFeeStructure(student, activeFees);
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="Fee_Structure_${student.admission_no}.docx"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Fee_Structure_${student.admission_no.replace(/\//g, '_')}.pdf"`);
     res.send(docBuffer);
   } catch (err) {
     console.error(err);
@@ -146,10 +147,10 @@ const getStudentPersonalInfo = async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    const docBuffer = generateStudentPersonalInfo(student);
+    const docBuffer = await generateStudentPersonalInfo(student);
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="Student_Personal_Information_${student.admission_no}.docx"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Student_Personal_Information_${student.admission_no.replace(/\//g, '_')}.pdf"`);
     res.send(docBuffer);
   } catch (err) {
     console.error(err);

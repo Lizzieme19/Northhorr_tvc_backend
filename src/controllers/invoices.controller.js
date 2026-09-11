@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { generateSupplierInvoice } = require('../services/documentService');
 
 // GET /api/invoices - List supplier invoices
 const getInvoices = async (req, res) => {
@@ -218,6 +219,35 @@ const deleteInvoice = async (req, res) => {
   }
 };
 
+// GET /api/invoices/:id/pdf - Generate Invoice PDF
+const generateInvoicePDF = async (req, res) => {
+  try {
+    const invoice = await prisma.supplierInvoice.findUnique({
+      where: { id: req.params.id },
+      include: {
+        lpo: {
+          include: {
+            supplier: true,
+            department: true,
+          },
+        },
+        supplier: true,
+      },
+    });
+
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    const pdfBuffer = await generateSupplierInvoice(invoice);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoice_no.replace(/\//g, '_')}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('PDF generation error:', err);
+    res.status(500).json({ error: 'Failed to generate PDF' });
+  }
+};
+
 module.exports = {
   getInvoices,
   getInvoiceById,
@@ -225,4 +255,5 @@ module.exports = {
   updateInvoice,
   recordPayment,
   deleteInvoice,
+  generateInvoicePDF,
 };

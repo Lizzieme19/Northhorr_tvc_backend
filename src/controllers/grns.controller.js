@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { generateGRN } = require('../services/documentService');
 
 // Generate GRN number
 const generateGRNNo = () => {
@@ -247,10 +248,40 @@ const deleteGRN = async (req, res) => {
   }
 };
 
+// GET /api/grns/:id/pdf - Generate GRN PDF
+const generateGRNPDF = async (req, res) => {
+  try {
+    const grn = await prisma.gRN.findUnique({
+      where: { id: req.params.id },
+      include: {
+        lpo: {
+          include: {
+            supplier: true,
+            department: true,
+          },
+        },
+        items: true,
+      },
+    });
+
+    if (!grn) return res.status(404).json({ error: 'GRN not found' });
+
+    const pdfBuffer = await generateGRN(grn);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${grn.grn_no.replace(/\//g, '_')}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('PDF generation error:', err);
+    res.status(500).json({ error: 'Failed to generate PDF' });
+  }
+};
+
 module.exports = {
   getGRNs,
   getGRNById,
   createGRN,
   verifyGRN,
   deleteGRN,
+  generateGRNPDF,
 };
