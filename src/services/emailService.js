@@ -1,4 +1,6 @@
 const nodemailer = require('nodemailer');
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 
 // Create transporter using environment variables
 const createTransporter = () => {
