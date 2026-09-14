@@ -1,5 +1,94 @@
 const prisma = require('../config/db');
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the levels JSON string stored on a Course into an array of level
+ * objects. Falls back gracefully for legacy comma-separated strings.
+ */
+function parseLevels(levelsStr) {
+  if (!levelsStr) return [];
+  const trimmed = levelsStr.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch (_) { /* fall through */ }
+  }
+  // Legacy: comma-separated string
+  return trimmed.split(',').map(s => ({
+    name: s.trim(),
+    entry_requirement: 'KCSE',
+    min_kcse_grade: null,
+    min_kcpe_marks: null,
+  }));
+}
+
+/**
+ * Validate and normalise an incoming levels array from the API body.
+ * Accepts either a JSON string or a plain JS array.
+ */
+function normaliseLevels(levelsInput) {
+  let arr;
+  if (typeof levelsInput === 'string') {
+    try {
+      arr = JSON.parse(levelsInput);
+    } catch (_) {
+      // Legacy comma-separated — auto-convert
+      arr = levelsInput.split(',').map(s => ({
+        name: s.trim(),
+        entry_requirement: 'KCSE',
+        min_kcse_grade: null,
+        min_kcpe_marks: null,
+      }));
+    }
+  } else if (Array.isArray(levelsInput)) {
+    arr = levelsInput;
+  } else {
+    return { error: 'levels must be a JSON array of level objects' };
+  }
+
+  const VALID_ENTRY_REQS = ['KCPE', 'KCSE', 'NONE'];
+  const VALID_KCSE_GRADES = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'E'];
+
+  const normalised = [];
+  for (const item of arr) {
+    if (!item.name || typeof item.name !== 'string') {
+      return { error: 'Each level must have a "name" field' };
+    }
+    const req = (item.entry_requirement || 'KCSE').toUpperCase();
+    if (!VALID_ENTRY_REQS.includes(req)) {
+      return { error: `Invalid entry_requirement "${req}". Must be one of: ${VALID_ENTRY_REQS.join(', ')}` };
+    }
+    let minKcseGrade = item.min_kcse_grade || null;
+    if (minKcseGrade && !VALID_KCSE_GRADES.includes(minKcseGrade)) {
+      return { error: `Invalid min_kcse_grade "${minKcseGrade}". Must be one of: ${VALID_KCSE_GRADES.join(', ')}` };
+    }
+    const minKcpeMarks = item.min_kcpe_marks != null ? Number(item.min_kcpe_marks) : null;
+
+    normalised.push({
+      name: item.name.trim(),
+      entry_requirement: req,
+      min_kcse_grade: req === 'KCSE' ? (minKcseGrade || null) : null,
+      min_kcpe_marks: req === 'KCPE' ? (minKcpeMarks || null) : null,
+    });
+  }
+  return { normalised };
+}
+
+/** Attach parsed levels array to each course object */
+function hydrateCourse(course) {
+  return {
+    ...course,
+    levels: parseLevels(course.levels),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Controllers
+// ---------------------------------------------------------------------------
+
 const getCourses = async (req, res) => {
   try {
     const { page = 1, limit = 20, search, department_id } = req.query;
@@ -30,7 +119,7 @@ const getCourses = async (req, res) => {
     ]);
 
     res.json({
-      courses,
+      courses: courses.map(hydrateCourse),
       pagination: {
         total,
         page: parseInt(page),
@@ -50,6 +139,9 @@ const createCourse = async (req, res) => {
     if (!name || !levels || !shortcode || !department_id) {
       return res.status(400).json({ error: 'Missing required fields: name, levels, shortcode, department_id' });
     }
+
+    const { normalised, error } = normaliseLevels(levels);
+    if (error) return res.status(400).json({ error });
 
     const cleanShortcode = shortcode.trim().toUpperCase();
 
@@ -73,13 +165,13 @@ const createCourse = async (req, res) => {
     const course = await prisma.course.create({
       data: {
         name,
-        levels,
+        levels: JSON.stringify(normalised),
         shortcode: cleanShortcode,
         department_id,
       },
     });
 
-    res.status(201).json(course);
+    res.status(201).json(hydrateCourse(course));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -93,6 +185,13 @@ const updateCourse = async (req, res) => {
 
     const course = await prisma.course.findUnique({ where: { id } });
     if (!course) return res.status(404).json({ error: 'Course not found' });
+
+    let normalisedLevels;
+    if (levels !== undefined) {
+      const result = normaliseLevels(levels);
+      if (result.error) return res.status(400).json({ error: result.error });
+      normalisedLevels = result.normalised;
+    }
 
     let cleanShortcode;
     if (shortcode) {
@@ -118,13 +217,13 @@ const updateCourse = async (req, res) => {
       where: { id },
       data: {
         name: name || course.name,
-        levels: levels || course.levels,
+        levels: normalisedLevels ? JSON.stringify(normalisedLevels) : course.levels,
         shortcode: cleanShortcode || course.shortcode,
         department_id: department_id || course.department_id,
       },
     });
 
-    res.json(updated);
+    res.json(hydrateCourse(updated));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -164,4 +263,6 @@ module.exports = {
   createCourse,
   updateCourse,
   deleteCourse,
+  parseLevels,       // exported for use in other controllers
+  hydrateCourse,     // exported for use in other controllers
 };

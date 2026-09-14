@@ -6,6 +6,25 @@ const { v4: uuidv4 } = require('uuid');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const { sendAdmissionConfirmation } = require('../services/emailService');
 const { getInitialTermForIntake, createStudentBalance } = require('../utils/termHelper');
+const { parseLevels } = require('./courses.controller');
+
+// ---------------------------------------------------------------------------
+// Entry requirement helpers
+// ---------------------------------------------------------------------------
+
+// KCSE grade ladder — index 0 is highest (A), higher index = lower grade
+const KCSE_GRADE_LADDER = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'E'];
+
+/**
+ * Returns true if `applicantGrade` meets or exceeds `minGrade`.
+ * A lower index on the ladder means a higher grade.
+ */
+function kcseGradeMeetsMinimum(applicantGrade, minGrade) {
+  const appIdx = KCSE_GRADE_LADDER.indexOf(applicantGrade);
+  const minIdx = KCSE_GRADE_LADDER.indexOf(minGrade);
+  if (appIdx === -1 || minIdx === -1) return false;
+  return appIdx <= minIdx; // lower index = better grade
+}
 
 // Generate unique application number
 const generateAppNo = () => {
@@ -31,6 +50,63 @@ const submitApplication = async (req, res) => {
     // Validate required fields
     if (!body.surname || !body.other_names || !body.gender || !body.date_of_birth || !body.email || !body.phone) {
       return res.status(400).json({ error: 'Missing required personal details' });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Validate entry requirements (hard block)
+    // ---------------------------------------------------------------------------
+    if (body.course_id && body.level_applied) {
+      const course = await prisma.course.findUnique({ where: { id: body.course_id } });
+      if (course) {
+        const levels = parseLevels(course.levels);
+        const levelConfig = levels.find(l => l.name === body.level_applied);
+        if (levelConfig) {
+          const req = levelConfig.entry_requirement;
+
+          if (req === 'KCSE') {
+            const minGrade = levelConfig.min_kcse_grade;
+            if (minGrade) {
+              const applicantGrade = (body.kcse_grade || '').trim();
+              if (!applicantGrade) {
+                return res.status(422).json({
+                  error: `${body.level_applied} of ${course.name} requires a KCSE certificate. Please provide your KCSE mean grade.`,
+                  requirement_type: 'KCSE',
+                  min_grade: minGrade,
+                });
+              }
+              if (!kcseGradeMeetsMinimum(applicantGrade, minGrade)) {
+                return res.status(422).json({
+                  error: `${body.level_applied} of ${course.name} requires a minimum KCSE grade of ${minGrade}. Your grade (${applicantGrade}) does not meet this requirement.`,
+                  requirement_type: 'KCSE',
+                  min_grade: minGrade,
+                  applicant_grade: applicantGrade,
+                });
+              }
+            }
+          } else if (req === 'KCPE') {
+            const minMarks = levelConfig.min_kcpe_marks;
+            if (minMarks != null) {
+              const applicantMarks = body.kcpe_marks ? parseInt(body.kcpe_marks) : null;
+              if (applicantMarks == null) {
+                return res.status(422).json({
+                  error: `${body.level_applied} of ${course.name} requires a KCPE certificate. Please provide your KCPE marks.`,
+                  requirement_type: 'KCPE',
+                  min_marks: minMarks,
+                });
+              }
+              if (applicantMarks < minMarks) {
+                return res.status(422).json({
+                  error: `${body.level_applied} of ${course.name} requires minimum KCPE marks of ${minMarks}. Your marks (${applicantMarks}) do not meet this requirement.`,
+                  requirement_type: 'KCPE',
+                  min_marks: minMarks,
+                  applicant_marks: applicantMarks,
+                });
+              }
+            }
+          }
+          // NONE — no requirement, allow through
+        }
+      }
     }
 
     const application = await prisma.application.create({

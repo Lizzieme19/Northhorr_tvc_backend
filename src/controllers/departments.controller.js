@@ -1,4 +1,8 @@
 const prisma = require('../config/db');
+const { parseLevels } = require('./courses.controller');
+
+/** Attach parsed levels array to a single course object */
+const hydrateCourse = c => ({ ...c, levels: parseLevels(c.levels) });
 
 const getDepartments = async (req, res) => {
   try {
@@ -9,7 +13,12 @@ const getDepartments = async (req, res) => {
       },
       orderBy: { name: 'asc' },
     });
-    res.json(departments);
+    // Parse levels JSON on each course
+    const hydrated = departments.map(d => ({
+      ...d,
+      courses: d.courses.map(hydrateCourse),
+    }));
+    res.json(hydrated);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -22,7 +31,7 @@ const getDepartmentBySlug = async (req, res) => {
       include: { courses: true, head: { select: { id: true, email: true } } },
     });
     if (!dept) return res.status(404).json({ error: 'Department not found' });
-    res.json(dept);
+    res.json({ ...dept, courses: dept.courses.map(hydrateCourse) });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -39,7 +48,7 @@ const getCoursesByDepartment = async (req, res) => {
       where: { department_id: dept.id },
       orderBy: { name: 'asc' },
     });
-    res.json(courses);
+    res.json(courses.map(hydrateCourse));
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -51,7 +60,7 @@ const getAllCourses = async (req, res) => {
       include: { department: { select: { id: true, name: true, slug: true } } },
       orderBy: { name: 'asc' },
     });
-    res.json(courses);
+    res.json(courses.map(hydrateCourse));
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
