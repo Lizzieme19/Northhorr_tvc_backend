@@ -87,20 +87,22 @@ async function drawHeader(doc, subtitle = '', customLogos = {}) {
   doc
     .fillColor('#555').fontSize(7.5).font('Helvetica')
     .text('MINISTRY OF EDUCATION — STATE DEPARTMENT FOR VOCATIONAL & TECHNICAL TRAINING', textLeft, 48, { width: textWidth, align: 'center' });
+  
   doc
     .fillColor(GREEN).fontSize(14).font('Helvetica-Bold')
-    .text('NORTH HORR TECHNICAL AND VOCATIONAL COLLEGE', textLeft, 62, { width: textWidth, align: 'center' });
+    .text('NORTH HORR TECHNICAL AND VOCATIONAL COLLEGE', textLeft, doc.y + 2, { width: textWidth, align: 'center' });
+  
   doc
     .fillColor(GREY).fontSize(8).font('Helvetica')
-    .text('P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 700 000 000  |  admissions@ntvc.ac.ke', textLeft, 80, { width: textWidth, align: 'center' });
+    .text('P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 700 000 000  |  admissions@ntvc.ac.ke', textLeft, doc.y + 4, { width: textWidth, align: 'center' });
 
   if (subtitle) {
     doc
       .fillColor(DARK).fontSize(11).font('Helvetica-Bold')
-      .text(subtitle.toUpperCase(), textLeft, 95, { width: textWidth, align: 'center' });
+      .text(subtitle.toUpperCase(), textLeft, doc.y + 8, { width: textWidth, align: 'center' });
   }
 
-  const dividerY = subtitle ? 112 : 100;
+  const dividerY = doc.y + 10;
   doc.moveTo(pageLeft, dividerY).lineTo(pageRight, dividerY).strokeColor(GREEN).lineWidth(1.5).stroke();
   return dividerY + 12;
 }
@@ -144,119 +146,180 @@ async function generateAdmissionLetter(student, feeTypes = []) {
     };
 
     const textBlocks = template?.text_blocks || {};
-    const getBlock = (key, defaultText) => {
-      let txt = textBlocks[key] || defaultText;
+    
+    // Add defaults if they are missing
+    const defaultBlocks = {
+      intro: 'Following your application, I am pleased to inform you that you have been offered a chance to study [PROGRAMME] at North Horr Technical and Vocational College.',
+      duration_note: 'The course will take [COURSE_DURATION] academic years. Continuance of your registration for the subsequent years will depend on evidence of your satisfactory class progress and payment of fees.',
+      qualification_note: 'This offer is on the basis of your qualifications presented in your application forms which are subject to satisfactory verification by college authorities. Any information found to be false will automatically lead to your disqualification.',
+      conditions_intro: 'The offer is also subject to the following conditions;',
+      condition_a: 'Your acceptance to pay the required fees as per the fee structure on or before admission.',
+      condition_b: 'Your agreement to adhere to the rules and regulations governing the conduct and discipline of trainees of North Horr TVC.',
+      condition_c: 'Production of Original certificates on the day of registration for verification purposes.',
+      condition_d: 'Please note that fee is payable at the beginning of every year or term. You are advised to apply for government scholarship, loan and bursary through www.hef.co.ke to cater for fees and other personal expenses.',
+      banking_details: 'You are required to pay fees in Banker\'s Draft or cash deposit into the college\'s bank account with the following details; Name: Kenya Commercial Bank, A/C No.: 127956824, A/C Name: North Horr Technical and Vocational College. The college does not accept personal cheques, money orders, postal orders or cash payments.',
+      accommodation_note: 'You will arrange for your own accommodation, living expenses, transport and stationery.',
+      forms_note: 'If you accept admission under these conditions, you are requested to fill and sign the following forms, which are attached to this letter, NHTVC/ADM/1, NHTVC/ADM/2 and NHTVC/ADM/3 and returned to the college on reporting.',
+      closing: 'I take this opportunity to congratulate you on your admission to the college. I wish you success in your academic pursuit at North Horr TVC.',
+      signatory_name: 'JOHN KIPKEMBOI CHUMBA',
+      signatory_title: 'PRINCIPAL - NORTH HORR TVC',
+    };
+
+    const app = student.application;
+    const fullName = `${app.surname} ${app.other_names}`.toUpperCase();
+    const today = fmtDate(new Date());
+    
+    const getBlock = (key) => {
+      let txt = textBlocks[key] || defaultBlocks[key] || '';
       return txt.replace(/\[STUDENT_NAME\]/g, fullName)
                 .replace(/\[ADMISSION_NO\]/g, student.admission_no)
-                .replace(/\[PROGRAMME\]/g, student.course?.name || 'N/A');
+                .replace(/\[REF_NO\]/g, student.admission_no)
+                .replace(/\[PROGRAMME\]/g, student.course?.name || 'N/A')
+                .replace(/\[COURSE_DURATION\]/g, '2') // Default to 2, as levels might vary
+                .replace(/\[REPORTING_DATE\]/g, 'N/A')
+                .replace(/\[REPORTING_DEADLINE\]/g, 'N/A')
+                .replace(/\[DATE\]/g, today);
     };
 
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    const app = student.application;
-    const fullName = `${app.surname} ${app.other_names}`.toUpperCase();
-    const today = fmtDate(new Date());
-    let y = await drawHeader(doc, 'Letter of Admission', customLogos);
+    
+    let y = await drawHeader(doc, 'ADMISSION FOR TRAINING', customLogos);
 
-    doc.font('Helvetica').fontSize(9.5).fillColor(GREY)
-      .text(`Ref: ${student.admission_no}`, pageLeft, y)
-      .text(`Date: ${today}`, pageLeft, y + 13);
-    y += 34;
+    doc.font('Helvetica').fontSize(10).fillColor(DARK);
+    
+    // Header details
+    doc.text(`Ref. No.: ${student.admission_no}`, pageLeft, y, { continued: true });
+    doc.text(`Date: ${today}`, { align: 'right' });
+    y = doc.y + 12;
+    doc.text(`ADM No.: ${student.admission_no}`, pageLeft, y);
+    y = doc.y + 12;
+    doc.text(`To: ${fullName}`, pageLeft, y);
+    y = doc.y + 24;
 
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK).text(`Dear ${fullName},`, pageLeft, y);
-    y += 20;
+    doc.font('Helvetica-Bold').fontSize(11).text('RE: ADMISSION FOR TRAINING', pageLeft, y, { underline: true });
+    y = doc.y + 12;
 
-    const introText = getBlock('intro', 'Following your application to North Horr Technical and Vocational College (NTVC), we are pleased to inform you that you have been provisionally admitted to the following programme:');
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK)
-      .text(introText, pageLeft, y, { width: contentWidth });
-    y = doc.y + 14;
-
-    const boxH = 128;
-    doc.rect(pageLeft, y, contentWidth, boxH).fillColor(BG_GREEN).fill();
-    doc.rect(pageLeft, y, 4, boxH).fillColor(GREEN).fill();
-    doc.fillColor(GREEN).font('Helvetica-Bold').fontSize(10.5).text('ADMISSION DETAILS', pageLeft + 14, y + 10);
-    const rows = [
-      ['Full Name:', fullName],
-      ['Admission Number:', student.admission_no],
-      ['Programme:', student.course?.name || 'N/A'],
-      ['Department:', student.department?.name || 'N/A'],
-      ['Level:', student.level],
-      ['Intake / Year:', `${student.intake} ${student.year}`],
-    ];
-    rows.forEach(([label, val], i) => {
-      const ry = y + 28 + i * 16;
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(DARK).text(label, pageLeft + 14, ry, { width: 155 });
-      doc.font('Helvetica').fontSize(9.5).fillColor(GREY).text(val, pageLeft + 172, ry, { width: contentWidth - 190 });
-    });
-    y += boxH + 14;
-
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('REPORTING REQUIREMENTS', pageLeft, y);
+    doc.font('Helvetica').fontSize(10);
+    const lineGap = { lineGap: 4, width: contentWidth };
+    
+    // Intro & Notes
+    doc.text(getBlock('intro'), pageLeft, y, lineGap);
+    y = doc.y + 8;
+    doc.text(getBlock('duration_note'), pageLeft, y, lineGap);
+    y = doc.y + 8;
+    doc.text(getBlock('qualification_note'), pageLeft, y, lineGap);
+    y = doc.y + 8;
+    
+    // Conditions
+    doc.text(getBlock('conditions_intro'), pageLeft, y, lineGap);
     y = doc.y + 4;
-    [
-      'Report to the college within 14 days of receiving this letter.',
-      'Bring original copies of ALL academic certificates and transcripts for verification.',
-      'National ID / Birth Certificate (original and photocopy).',
-      'Medical Examination Certificate (original).',
-      'Two recent passport-sized colour photographs.',
-      'Show proof of HELB application at the Finance Office if applicable.',
-    ].forEach((r) => {
-      doc.font('Helvetica').fontSize(10).fillColor(DARK).text(`•  ${r}`, pageLeft + 10, doc.y, { width: contentWidth - 10 });
+    
+    const indent = pageLeft + 20;
+    const indentWidth = contentWidth - 20;
+    const conditions = ['condition_a', 'condition_b', 'condition_c', 'condition_d'];
+    const letters = ['a)', 'b)', 'c)', 'd)'];
+    
+    conditions.forEach((condKey, i) => {
+      const condText = getBlock(condKey);
+      if (condText) {
+        doc.text(letters[i], indent, doc.y, { continued: true, width: indentWidth, lineGap: 4 });
+        doc.text(`  ${condText}`);
+      }
     });
-    y = doc.y + 14;
+    y = doc.y + 8;
 
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('FEES PAYABLE ON REPORTING', pageLeft, y);
-    y = doc.y + 4;
-    const onTimeFees = feeTypes.length > 0 ? feeTypes.filter(f => !f.term_based) : [{ name: 'Admission Fee', amount: 1500 }, { name: 'Student ID Fee', amount: 500 }];
-    onTimeFees.forEach((f) => {
-      doc.font('Helvetica').fontSize(10).fillColor(DARK)
-        .text(`•  ${f.name}:`, pageLeft + 10, doc.y, { continued: true, width: 250 });
-      doc.font('Helvetica-Bold').text(`  ${fmtKES(f.amount)}`);
-    });
-    y = doc.y + 6;
-    doc.font('Helvetica').fontSize(9).fillColor(GREY)
-      .text('Note: Payment can be made via M-Pesa, bank transfer, or cash at the Finance Office.', pageLeft, y, { width: contentWidth });
-    y = doc.y + 18;
+    // Additional info
+    doc.text(getBlock('banking_details'), pageLeft, y, lineGap);
+    y = doc.y + 8;
+    doc.text(getBlock('accommodation_note'), pageLeft, y, lineGap);
+    y = doc.y + 8;
+    doc.text(getBlock('forms_note'), pageLeft, y, lineGap);
+    y = doc.y + 8;
+    doc.text(getBlock('closing'), pageLeft, y, lineGap);
+    y = doc.y + 30;
 
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK)
-      .text('We look forward to welcoming you to NTVC. Should you have any queries, please do not hesitate to contact the Admissions Office.', pageLeft, y, { width: contentWidth });
-    y = doc.y + 22;
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK).text('Yours faithfully,', pageLeft, y);
-    y = doc.y + 36;
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(DARK).text('THE PRINCIPAL', pageLeft, y);
-    doc.font('Helvetica').fontSize(10).fillColor(GREY).text('North Horr Technical and Vocational College', pageLeft);
+    // Signature
+    doc.font('Helvetica-Bold').text(getBlock('signatory_name'), pageLeft, y);
+    y = doc.y + 2;
+    doc.font('Helvetica-Bold').text(getBlock('signatory_title'), pageLeft, y);
+    
     drawFooter(doc, student.admission_no);
   });
 }
 
 async function generateLetterOfAcceptance(student) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'ACCEPTANCE_LETTER' }
+    });
+
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+
+    const textBlocks = template?.text_blocks || {};
+    const defaultBlocks = {
+      intro: 'With reference to the admission offer made to you by North Horr Technical and Vocational College, we are pleased to confirm your acceptance into the following programme:',
+      conditions_intro: 'Your acceptance is subject to the following conditions;',
+      condition_a: 'You are required to report to the college within 14 days of this letter.',
+      condition_b: 'You must present original academic certificates and identification documents at reporting.',
+      condition_c: 'Payment of all prescribed fees is required to confirm your enrolment.',
+      condition_d: 'You must abide by all college rules, regulations, and academic policies.',
+      condition_e: 'This offer is subject to verification of all academic qualifications presented.',
+      closing: 'We are delighted to welcome you to the NTVC family. We are confident that your time here will be both rewarding and enriching.',
+      signatory_name: 'JOHN KIPKEMBOI CHUMBA',
+      signatory_title: 'PRINCIPAL - NORTH HORR TVC',
+    };
+
+    const app = student.application;
+    const fullName = `${app.surname} ${app.other_names}`.toUpperCase();
+    const today = fmtDate(new Date());
+
+    const getBlock = (key) => {
+      let txt = textBlocks[key] || defaultBlocks[key] || '';
+      return txt.replace(/\[STUDENT_NAME\]/g, fullName)
+                .replace(/\[ADMISSION_NO\]/g, student.admission_no)
+                .replace(/\[REF_NO\]/g, `NTVC/ADM/${student.admission_no}`)
+                .replace(/\[PROGRAMME\]/g, student.course?.name || 'N/A')
+                .replace(/\[DATE\]/g, today);
+    };
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    const app = student.application;
-    const fullName = `${app.surname} ${app.other_names}`.toUpperCase();
-    const refNo = `NTVC/ADM/${student.admission_no}`;
-    let y = drawHeader(doc, 'Letter of Acceptance');
+    
+    let y = await drawHeader(doc, 'LETTER OF ACCEPTANCE', customLogos);
 
-    doc.font('Helvetica').fontSize(9.5).fillColor(GREY)
-      .text(`Ref: ${refNo}`, pageLeft, y)
-      .text(`Date: ${fmtDate(new Date())}`, pageLeft, y + 13);
-    y += 36;
+    doc.font('Helvetica').fontSize(10).fillColor(DARK);
+    
+    // Header details
+    doc.text(`Ref: NTVC/ADM/${student.admission_no}`, pageLeft, y, { continued: true });
+    doc.text(`Date: ${today}`, { align: 'right' });
+    y = doc.y + 24;
 
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(DARK).text(fullName, pageLeft, y);
-    if (app.address) doc.font('Helvetica').fontSize(10).fillColor(GREY).text(app.address, pageLeft);
+    doc.font('Helvetica-Bold').fontSize(10.5).text(fullName, pageLeft, y);
+    if (app.address) {
+      doc.font('Helvetica').fontSize(10).fillColor(GREY).text(app.address, pageLeft);
+    }
     y = doc.y + 16;
 
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(DARK)
-      .text(`RE: ACCEPTANCE OF ADMISSION — ${student.course?.name?.toUpperCase() || 'PROGRAMME'}`, pageLeft, y, { width: contentWidth });
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(DARK)
+      .text(`RE: ACCEPTANCE OF ADMISSION — ${student.course?.name?.toUpperCase() || 'PROGRAMME'}`, pageLeft, y, { underline: true });
     y = doc.y + 12;
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK).text(`Dear ${app.surname} ${app.other_names},`, pageLeft, y);
+
+    doc.font('Helvetica').fontSize(10.5).text(`Dear ${app.surname} ${app.other_names},`, pageLeft, y);
     y = doc.y + 12;
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK)
-      .text('With reference to the admission offer made to you by North Horr Technical and Vocational College (NTVC), we are pleased to confirm your acceptance into the following programme:', pageLeft, y, { width: contentWidth });
+
+    const lineGap = { lineGap: 4, width: contentWidth };
+    
+    // Intro
+    doc.text(getBlock('intro'), pageLeft, y, lineGap);
     y = doc.y + 14;
 
+    // Programme Details Box
     const boxH = 100;
     doc.rect(pageLeft, y, contentWidth, boxH).fillColor(BG_BLUE).fill();
     doc.rect(pageLeft, y, 4, boxH).fillColor('#1D4ED8').fill();
@@ -274,38 +337,80 @@ async function generateLetterOfAcceptance(student) {
     });
     y += boxH + 14;
 
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('CONDITIONS OF ACCEPTANCE', pageLeft, y);
+    // Conditions
+    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text(getBlock('conditions_intro'), pageLeft, y);
     y = doc.y + 4;
-    [
-      'You are required to report to the college within 14 days of this letter.',
-      'You must present original academic certificates and identification documents at reporting.',
-      'Payment of all prescribed fees is required to confirm your enrolment.',
-      'You must abide by all college rules, regulations, and academic policies.',
-      'This offer is subject to verification of all academic qualifications presented.',
-    ].forEach((c, i) => {
-      doc.font('Helvetica').fontSize(10).fillColor(DARK).text(`${i + 1}.  ${c}`, pageLeft + 10, doc.y, { width: contentWidth - 10 });
+
+    const conditions = ['condition_a', 'condition_b', 'condition_c', 'condition_d', 'condition_e'];
+    doc.font('Helvetica').fontSize(10).fillColor(DARK);
+    conditions.forEach((condKey, i) => {
+      const condText = getBlock(condKey);
+      if (condText) {
+        doc.text(`${i + 1}.  ${condText}`, pageLeft + 10, doc.y, { width: contentWidth - 10, lineGap: 4 });
+      }
     });
     y = doc.y + 18;
 
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK)
-      .text('We are delighted to welcome you to the NTVC family. We are confident that your time here will be both rewarding and enriching.', pageLeft, y, { width: contentWidth });
+    // Closing
+    doc.text(getBlock('closing'), pageLeft, y, lineGap);
     y = doc.y + 20;
-    doc.font('Helvetica').fontSize(10.5).fillColor(DARK).text('Yours sincerely,', pageLeft, y);
+
+    // Signature
+    doc.text('Yours sincerely,', pageLeft, y);
     y = doc.y + 36;
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(DARK).text('THE PRINCIPAL', pageLeft, y);
-    doc.font('Helvetica').fontSize(10).fillColor(GREY).text('North Horr Technical and Vocational College', pageLeft);
-    drawFooter(doc, refNo);
+    doc.font('Helvetica-Bold').text(getBlock('signatory_name'), pageLeft, y);
+    y = doc.y + 2;
+    doc.font('Helvetica-Bold').text(getBlock('signatory_title'), pageLeft, y);
+    
+    drawFooter(doc, `NTVC/ADM/${student.admission_no}`);
   });
 }
 
 async function generateAdmissionForTraining(student) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'TRAINING_ADMISSION' }
+    });
+
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+
+    const textBlocks = template?.text_blocks || {};
+    const defaultBlocks = {
+      intro: 'You have been admitted for training at North Horr Technical and Vocational College under the following programme. Please report to the college on the specified date with all required documents.',
+      requirements_intro: 'What to bring on reporting day:',
+      req_a: 'Original and certified copies of all academic certificates (KCPE, KCSE, etc.)',
+      req_b: 'National ID or Birth Certificate (original + photocopy)',
+      req_c: 'Two recent passport-size photographs',
+      req_d: 'Medical Examination Certificate from a registered medical officer',
+      req_e: 'This admission letter',
+      req_f: 'Proof of fee payment or arrangement letter from Finance',
+      closing: 'Please ensure you report on the specified date. Late reporting may affect your enrolment. For inquiries, contact the Admissions Office.',
+      signatory_name: 'JOHN KIPKEMBOI CHUMBA',
+      signatory_title: 'PRINCIPAL - NORTH HORR TVC',
+    };
+
+    const app = student.application;
+    const refNo = `NTVC/TR/${student.admission_no}`;
+    
+    const getBlock = (key) => {
+      let txt = textBlocks[key] || defaultBlocks[key] || '';
+      return txt.replace(/\[STUDENT_NAME\]/g, `${app.surname} ${app.other_names}`.toUpperCase())
+                .replace(/\[ADMISSION_NO\]/g, student.admission_no)
+                .replace(/\[REF_NO\]/g, refNo)
+                .replace(/\[PROGRAMME\]/g, student.course?.name || 'N/A')
+                .replace(/\[REPORTING_DATE\]/g, fmtDate(student.reporting_date))
+                .replace(/\[REPORTING_DEADLINE\]/g, fmtDate(student.reporting_deadline))
+                .replace(/\[DATE\]/g, fmtDate(new Date()));
+    };
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    const app = student.application;
-    const refNo = `NTVC/TR/${student.admission_no}`;
-    let y = drawHeader(doc, 'Admission for Training');
+    
+    let y = await drawHeader(doc, 'Admission for Training', customLogos);
 
     doc.font('Helvetica').fontSize(9.5).fillColor(GREY)
       .text(`Ref: ${refNo}`, pageLeft, y)
@@ -313,13 +418,15 @@ async function generateAdmissionForTraining(student) {
     y += 36;
 
     doc.font('Helvetica-Bold').fontSize(10.5).fillColor(DARK).text(`${app.surname} ${app.other_names}`.toUpperCase(), pageLeft, y);
-    if (app.address) doc.font('Helvetica').fontSize(10).fillColor(GREY).text(app.address, pageLeft);
+    if (app.address) {
+      doc.font('Helvetica').fontSize(10).fillColor(GREY).text(app.address, pageLeft);
+    }
     y = doc.y + 16;
 
     doc.font('Helvetica').fontSize(10.5).fillColor(DARK).text(`Dear ${app.surname} ${app.other_names},`, pageLeft, y);
     y = doc.y + 12;
     doc.font('Helvetica').fontSize(10.5).fillColor(DARK)
-      .text('You have been admitted for training at North Horr Technical and Vocational College (NTVC) under the following programme. Please report to the college on the specified date with all required documents.', pageLeft, y, { width: contentWidth });
+      .text(getBlock('intro'), pageLeft, y, { width: contentWidth });
     y = doc.y + 14;
 
     const trainingRows = [
@@ -343,39 +450,57 @@ async function generateAdmissionForTraining(student) {
     });
     y += boxH + 14;
 
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('WHAT TO BRING ON REPORTING DAY', pageLeft, y);
+    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text(getBlock('requirements_intro'), pageLeft, y);
     y = doc.y + 4;
-    [
-      'Original and certified copies of all academic certificates (KCPE, KCSE, etc.)',
-      'National ID or Birth Certificate (original + photocopy)',
-      'Two recent passport-size photographs',
-      'Medical Examination Certificate from a registered medical officer',
-      'This admission letter',
-      'Proof of fee payment or arrangement letter from Finance',
-    ].forEach((item) => {
-      doc.font('Helvetica').fontSize(10).fillColor(DARK).text(`•  ${item}`, pageLeft + 10, doc.y, { width: contentWidth - 10 });
+    
+    const reqs = ['req_a', 'req_b', 'req_c', 'req_d', 'req_e', 'req_f'];
+    doc.font('Helvetica').fontSize(10).fillColor(DARK);
+    reqs.forEach((reqKey) => {
+      const reqText = getBlock(reqKey);
+      if (reqText) {
+        doc.text(`•  ${reqText}`, pageLeft + 10, doc.y, { width: contentWidth - 10 });
+      }
     });
     y = doc.y + 18;
 
     doc.font('Helvetica').fontSize(10.5).fillColor(DARK)
-      .text('Please ensure you report on the specified date. Late reporting may affect your enrolment. For inquiries, contact the Admissions Office.', pageLeft, y, { width: contentWidth });
+      .text(getBlock('closing'), pageLeft, y, { width: contentWidth });
     y = doc.y + 20;
     doc.font('Helvetica').fontSize(10.5).fillColor(DARK).text('Yours faithfully,', pageLeft, y);
     y = doc.y + 36;
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(DARK).text('THE PRINCIPAL', pageLeft, y);
-    doc.font('Helvetica').fontSize(10).fillColor(GREY).text('North Horr Technical and Vocational College', pageLeft);
+    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(DARK).text(getBlock('signatory_name'), pageLeft, y);
+    doc.font('Helvetica').fontSize(10).fillColor(GREY).text(getBlock('signatory_title'), pageLeft);
     drawFooter(doc, refNo);
   });
 }
 
 async function generateFeeStructure(student, feeTypes = []) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'FEE_STRUCTURE' }
+    });
+
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+
+    const textBlocks = template?.text_blocks || {};
+    const defaultBlocks = {
+      payment_info: 'Fees can be paid at the Finance Office via cash, bank transfer, or M-Pesa. Students should retain all payment receipts.',
+      scholarship_note: 'You are advised to apply for government scholarships, HELB loans, and bursaries through www.hef.co.ke to cater for fees and other personal expenses.',
+      refund_policy: 'Fees once paid are not refundable except under special circumstances approved by the management.'
+    };
+
+    const getBlock = (key) => textBlocks[key] || defaultBlocks[key] || '';
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
     const app = student.application;
     const fullName = `${app.surname} ${app.other_names}`.toUpperCase();
-    let y = drawHeader(doc, 'Student Fee Structure');
+    
+    let y = await drawHeader(doc, 'Student Fee Structure', customLogos);
 
     // Student details strip
     const sBoxH = 66;
@@ -431,23 +556,58 @@ async function generateFeeStructure(student, feeTypes = []) {
     y = drawFeeTable('ONE-TIME FEES (Payable on Admission)', oneTime.length > 0 ? oneTime : defaultFees, y);
     if (termBased.length > 0) y = drawFeeTable('TERM-BASED FEES (Per Term)', termBased, y);
 
-    doc.rect(pageLeft, y, contentWidth, 52).fillColor(BG_YELLOW).fill();
-    doc.rect(pageLeft, y, 4, 52).fillColor('#D97706').fill();
-    doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#92400E').text('PAYMENT INFORMATION', pageLeft + 14, y + 8);
-    doc.font('Helvetica').fontSize(9).fillColor(DARK)
-      .text('Fees can be paid at the Finance Office via cash, bank transfer, or M-Pesa. Students should retain all payment receipts.', pageLeft + 14, y + 22, { width: contentWidth - 28 });
+    // Dynamic info blocks
+    const boxPad = 12;
+    doc.rect(pageLeft, y, contentWidth, 80).fillColor(BG_YELLOW).fill();
+    doc.rect(pageLeft, y, 4, 80).fillColor('#D97706').fill();
+    doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#92400E').text('PAYMENT INFORMATION', pageLeft + boxPad + 4, y + 8);
+    y = doc.y + 4;
+    
+    doc.font('Helvetica').fontSize(9).fillColor(DARK);
+    const notes = [
+      getBlock('payment_info'),
+      getBlock('scholarship_note'),
+      getBlock('refund_policy')
+    ];
+    notes.forEach(note => {
+      if (note) {
+        doc.text(`• ${note}`, pageLeft + boxPad + 4, doc.y, { width: contentWidth - boxPad * 2 - 4, lineGap: 2 });
+      }
+    });
+
     drawFooter(doc);
   });
 }
 
 async function generateStudentPersonalInfo(student) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'PERSONAL_INFO' }
+    });
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+    const textBlocks = template?.text_blocks || {};
+    const defaultBlocks = {
+      instructions: 'Please fill out this form accurately. The information provided will be used to process your admission and maintain your student records.',
+      declaration: 'I declare that the information provided above is true and correct to the best of my knowledge.',
+    };
+    const getBlock = (key) => textBlocks[key] || defaultBlocks[key] || '';
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
     const app = student.application;
     const fullName = `${app.surname} ${app.other_names}`.toUpperCase();
-    let y = drawHeader(doc, 'Student Personal Information Record');
+    let y = await drawHeader(doc, 'Student Personal Information Record', customLogos);
+
+    const instructions = getBlock('instructions');
+    if (instructions) {
+      doc.font('Helvetica-Oblique').fontSize(9).fillColor(GREY)
+         .text(instructions, pageLeft, y, { width: contentWidth, align: 'center' });
+      y = doc.y + 12;
+    }
 
     doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK).text(fullName, pageLeft, y, { width: contentWidth });
     doc.font('Helvetica').fontSize(10).fillColor(GREY)
@@ -494,6 +654,19 @@ async function generateStudentPersonalInfo(student) {
       ['Disability:', app.disability || 'None declared'],
       ['Emergency Contact:', app.emergency_person], ['Emergency Phone:', app.emergency_phone],
     ]);
+
+    // Declaration
+    const declText = getBlock('declaration');
+    if (declText) {
+      y = doc.y + 12;
+      doc.rect(pageLeft, y, contentWidth, 40).fillColor('#F9FAFB').fill();
+      doc.rect(pageLeft, y, contentWidth, 40).strokeColor('#E5E7EB').lineWidth(0.5).stroke();
+      doc.font('Helvetica-Oblique').fontSize(9).fillColor(DARK)
+         .text(declText, pageLeft + 10, y + 8, { width: contentWidth - 20 });
+      doc.font('Helvetica-Bold').fontSize(9)
+         .text('Signature: _______________________    Date: ________________', pageLeft + 10, y + 22);
+    }
+
     drawFooter(doc, student.admission_no);
   });
 }
@@ -504,10 +677,31 @@ async function generateStudentPersonalInfo(student) {
 
 async function generateLPO(lpo) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'LPO' }
+    });
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+    const textBlocks = template?.text_blocks || {};
+    const defaultTerms = [
+      '1. Goods/services must conform strictly to the specifications stated above.',
+      '2. Delivery must be made to the stated department by the delivery date indicated.',
+      '3. This LPO must accompany all deliveries and invoices.',
+      '4. NTVC reserves the right to reject substandard goods without obligation.',
+      '5. Payment shall be made within 30 days of receipt of goods and a verified invoice.',
+    ];
+    const getTerms = () => {
+      const t = textBlocks['terms'];
+      if (t) return t.split('\n').filter(Boolean);
+      return defaultTerms;
+    };
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    let y = drawHeader(doc, 'Local Purchase Order');
+    let y = await drawHeader(doc, 'Local Purchase Order', customLogos);
 
     // Banner
     doc.rect(pageLeft, y, contentWidth, 28).fillColor(GREEN).fill();
@@ -585,19 +779,15 @@ async function generateLPO(lpo) {
       y = doc.y + 10;
     }
 
-    // T&C
-    doc.rect(pageLeft, y, contentWidth, 72).fillColor('#F9FAFB').fill();
-    doc.rect(pageLeft, y, contentWidth, 72).strokeColor('#E5E7EB').lineWidth(0.4).stroke();
+    // T&C — pulled from DB or defaults
+    const terms = getTerms();
+    const tcBoxH = 20 + terms.length * 11 + 10;
+    doc.rect(pageLeft, y, contentWidth, tcBoxH).fillColor('#F9FAFB').fill();
+    doc.rect(pageLeft, y, contentWidth, tcBoxH).strokeColor('#E5E7EB').lineWidth(0.4).stroke();
     doc.font('Helvetica-Bold').fontSize(9).fillColor(GREEN).text('TERMS & CONDITIONS', pageLeft + 10, y + 8);
     doc.font('Helvetica').fontSize(8).fillColor(DARK);
-    [
-      '1. Goods/services must conform strictly to the specifications stated above.',
-      '2. Delivery must be made to the stated department by the delivery date indicated.',
-      '3. This LPO must accompany all deliveries and invoices.',
-      '4. NTVC reserves the right to reject substandard goods without obligation.',
-      '5. Payment shall be made within 30 days of receipt of goods and a verified invoice.',
-    ].forEach((t, i) => doc.text(t, pageLeft + 10, y + 22 + i * 10, { width: contentWidth - 20 }));
-    y += 72 + 16;
+    terms.forEach((t, i) => doc.text(t, pageLeft + 10, y + 22 + i * 11, { width: contentWidth - 20 }));
+    y += tcBoxH + 16;
 
     // Signature block
     const sigW = (contentWidth - 20) / 2;
@@ -615,10 +805,32 @@ async function generateLPO(lpo) {
 
 async function generateRFQ(rfq) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'RFQ' }
+    });
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+    const textBlocks = template?.text_blocks || {};
+    const defaultInstructions = [
+      `1. Submit your sealed quotation to the Procurement Office by the closing date indicated.`,
+      '2. Quote prices inclusive of all taxes, delivery charges, and applicable levies.',
+      '3. Validity of your quotation must be for a minimum of 30 days from the closing date.',
+      '4. Attach copies of your business registration and tax compliance certificates.',
+      '5. NTVC is not bound to accept the lowest or any quotation received.',
+      '6. Late submissions will not be considered under any circumstances.',
+    ];
+    const getInstructions = () => {
+      const t = textBlocks['instructions'];
+      if (t) return t.split('\n').filter(Boolean);
+      return defaultInstructions;
+    };
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    let y = drawHeader(doc, 'Request for Quotation');
+    let y = await drawHeader(doc, 'Request for Quotation', customLogos);
 
     doc.rect(pageLeft, y, contentWidth, 28).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
@@ -685,19 +897,14 @@ async function generateRFQ(rfq) {
       y += 14;
     }
 
-    doc.rect(pageLeft, y, contentWidth, 88).fillColor('#F0F9FF').fill();
-    doc.rect(pageLeft, y, 4, 88).fillColor('#0EA5E9').fill();
+    const instructions = getInstructions();
+    const instBoxH = 20 + instructions.length * 11 + 10;
+    doc.rect(pageLeft, y, contentWidth, instBoxH).fillColor('#F0F9FF').fill();
+    doc.rect(pageLeft, y, 4, instBoxH).fillColor('#0EA5E9').fill();
     doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#0369A1').text('INSTRUCTIONS TO BIDDERS', pageLeft + 14, y + 8);
     doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
-    [
-      `1. Submit your sealed quotation to the Procurement Office by: ${fmtDate(rfq.closing_date)}.`,
-      '2. Quote prices inclusive of all taxes, delivery charges, and applicable levies.',
-      '3. Validity of your quotation must be for a minimum of 30 days from the closing date.',
-      '4. Attach copies of your business registration and tax compliance certificates.',
-      '5. NTVC is not bound to accept the lowest or any quotation received.',
-      '6. Late submissions will not be considered under any circumstances.',
-    ].forEach((inst, i) => doc.text(inst, pageLeft + 14, y + 24 + i * 11, { width: contentWidth - 28 }));
-    y += 88 + 14;
+    instructions.forEach((inst, i) => doc.text(inst, pageLeft + 14, y + 24 + i * 11, { width: contentWidth - 28 }));
+    y += instBoxH + 14;
 
     doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('Issued by:', pageLeft, y);
     y += 36;
@@ -709,10 +916,18 @@ async function generateRFQ(rfq) {
 
 async function generateGRN(grn) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'GRN' }
+    });
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    let y = drawHeader(doc, 'Goods Received Note');
+    let y = await drawHeader(doc, 'Goods Received Note', customLogos);
 
     doc.rect(pageLeft, y, contentWidth, 28).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
@@ -794,10 +1009,20 @@ async function generateGRN(grn) {
 
 async function generateSupplierInvoice(invoice) {
   return buildPDF(async (doc) => {
+    const template = await prisma.documentTemplate.findUnique({
+      where: { document_type: 'SUPPLIER_INVOICE' }
+    });
+    const customLogos = {
+      ministry: await fetchImageBuffer(template?.ministry_logo_url),
+      college: await fetchImageBuffer(template?.college_logo_url)
+    };
+    const textBlocks = template?.text_blocks || {};
+    const getBlock = (key, def) => textBlocks[key] || def;
+
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    let y = drawHeader(doc, 'Supplier Invoice');
+    let y = await drawHeader(doc, 'Supplier Invoice', customLogos);
 
     doc.rect(pageLeft, y, contentWidth, 28).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
@@ -851,11 +1076,12 @@ async function generateSupplierInvoice(invoice) {
       y = doc.y + 10;
     }
 
+    const paymentInfo = getBlock('payment_info', 'Payment to be made to: North Horr TVC Finance Office  |  Bank Transfer / M-Pesa  |  Quote invoice number on all payments.');
     doc.rect(pageLeft, y, contentWidth, 36).fillColor(BG_YELLOW).fill();
     doc.rect(pageLeft, y, 4, 36).fillColor('#D97706').fill();
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#92400E').text('PAYMENT INFORMATION', pageLeft + 14, y + 6);
     doc.font('Helvetica').fontSize(8.5).fillColor(DARK)
-      .text('Payment to be made to: North Horr TVC Finance Office  |  Bank Transfer / M-Pesa  |  Quote invoice number on all payments.', pageLeft + 14, y + 20, { width: contentWidth - 28 });
+      .text(paymentInfo, pageLeft + 14, y + 20, { width: contentWidth - 28 });
     y += 36 + 20;
 
     const sigW2 = (contentWidth - 20) / 2;
