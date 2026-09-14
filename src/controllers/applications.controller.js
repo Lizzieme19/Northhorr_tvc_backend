@@ -84,24 +84,14 @@ const submitApplication = async (req, res) => {
               }
             }
           } else if (req === 'KCPE') {
-            const minMarks = levelConfig.min_kcpe_marks;
-            if (minMarks != null) {
-              const applicantMarks = body.kcpe_marks ? parseInt(body.kcpe_marks) : null;
-              if (applicantMarks == null) {
-                return res.status(422).json({
-                  error: `${body.level_applied} of ${course.name} requires a KCPE certificate. Please provide your KCPE marks.`,
-                  requirement_type: 'KCPE',
-                  min_marks: minMarks,
-                });
-              }
-              if (applicantMarks < minMarks) {
-                return res.status(422).json({
-                  error: `${body.level_applied} of ${course.name} requires minimum KCPE marks of ${minMarks}. Your marks (${applicantMarks}) do not meet this requirement.`,
-                  requirement_type: 'KCPE',
-                  min_marks: minMarks,
-                  applicant_marks: applicantMarks,
-                });
-              }
+            // KCPE is a binary qualifier — any student who completed KCPE qualifies.
+            // Marks are collected for record-keeping only, not for eligibility.
+            const applicantMarks = body.kcpe_marks ? parseInt(body.kcpe_marks) : null;
+            if (applicantMarks == null || isNaN(applicantMarks)) {
+              return res.status(422).json({
+                error: `${body.level_applied} of ${course.name} requires a KCPE certificate. Please enter your KCPE marks (any score qualifies).`,
+                requirement_type: 'KCPE',
+              });
             }
           }
           // NONE — no requirement, allow through
