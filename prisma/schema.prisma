@@ -234,9 +234,10 @@ model Application {
   emergency_phone       String?
 
   // Course selection
-  course_id       String?
-  department_id   String?
-  level_applied   String?
+  course_id               String?
+  department_id           String?
+  level_applied           String?
+  prior_level_completed   String?   // e.g. "Level 3" — progression-based entry bypass
 
   // Status
   status          ApplicationStatus @default(PENDING)

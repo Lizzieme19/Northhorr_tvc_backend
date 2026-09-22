@@ -41,6 +41,7 @@ function normaliseLevels(levelsInput) {
         entry_requirement: 'KCSE',
         min_kcse_grade: null,
         min_kcpe_marks: null,
+        allow_progression_from: null,
       }));
     }
   } else if (Array.isArray(levelsInput)) {
@@ -51,6 +52,7 @@ function normaliseLevels(levelsInput) {
 
   const VALID_ENTRY_REQS = ['KCPE', 'KCSE', 'NONE'];
   const VALID_KCSE_GRADES = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'E'];
+  const VALID_PROGRESSION_LEVELS = ['Level 3', 'Level 4', 'Level 5'];
 
   const normalised = [];
   for (const item of arr) {
@@ -67,11 +69,18 @@ function normaliseLevels(levelsInput) {
     }
     const minKcpeMarks = item.min_kcpe_marks != null ? Number(item.min_kcpe_marks) : null;
 
+    // allow_progression_from: optional, must be a valid prior level or null/empty
+    let allowProgressionFrom = item.allow_progression_from || null;
+    if (allowProgressionFrom && !VALID_PROGRESSION_LEVELS.includes(allowProgressionFrom)) {
+      return { error: `Invalid allow_progression_from "${allowProgressionFrom}". Must be one of: ${VALID_PROGRESSION_LEVELS.join(', ')} or null` };
+    }
+
     normalised.push({
       name: item.name.trim(),
       entry_requirement: req,
       min_kcse_grade: req === 'KCSE' ? (minKcseGrade || null) : null,
       min_kcpe_marks: req === 'KCPE' ? (minKcpeMarks || null) : null,
+      allow_progression_from: allowProgressionFrom || null,
     });
   }
   return { normalised };

@@ -61,40 +61,50 @@ const submitApplication = async (req, res) => {
         const levels = parseLevels(course.levels);
         const levelConfig = levels.find(l => l.name === body.level_applied);
         if (levelConfig) {
-          const req = levelConfig.entry_requirement;
+          // ── Progression bypass ──────────────────────────────────────────────
+          // If the level has an allow_progression_from rule AND the applicant
+          // declares having completed that prior level, skip KCSE/KCPE check.
+          const priorLevelCompleted = (body.prior_level_completed || '').trim();
+          const progressionFrom = levelConfig.allow_progression_from || null;
+          const qualifiesByProgression =
+            progressionFrom && priorLevelCompleted && priorLevelCompleted === progressionFrom;
 
-          if (req === 'KCSE') {
-            const minGrade = levelConfig.min_kcse_grade;
-            if (minGrade) {
-              const applicantGrade = (body.kcse_grade || '').trim();
-              if (!applicantGrade) {
-                return res.status(422).json({
-                  error: `${body.level_applied} of ${course.name} requires a KCSE certificate. Please provide your KCSE mean grade.`,
-                  requirement_type: 'KCSE',
-                  min_grade: minGrade,
-                });
+          if (!qualifiesByProgression) {
+            const req = levelConfig.entry_requirement;
+
+            if (req === 'KCSE') {
+              const minGrade = levelConfig.min_kcse_grade;
+              if (minGrade) {
+                const applicantGrade = (body.kcse_grade || '').trim();
+                if (!applicantGrade) {
+                  return res.status(422).json({
+                    error: `${body.level_applied} of ${course.name} requires a KCSE certificate. Please provide your KCSE mean grade.`,
+                    requirement_type: 'KCSE',
+                    min_grade: minGrade,
+                  });
+                }
+                if (!kcseGradeMeetsMinimum(applicantGrade, minGrade)) {
+                  return res.status(422).json({
+                    error: `${body.level_applied} of ${course.name} requires a minimum KCSE grade of ${minGrade}. Your grade (${applicantGrade}) does not meet this requirement.`,
+                    requirement_type: 'KCSE',
+                    min_grade: minGrade,
+                    applicant_grade: applicantGrade,
+                  });
+                }
               }
-              if (!kcseGradeMeetsMinimum(applicantGrade, minGrade)) {
+            } else if (req === 'KCPE') {
+              // KCPE is a binary qualifier — any student who completed KCPE qualifies.
+              // Marks are collected for record-keeping only, not for eligibility.
+              const applicantMarks = body.kcpe_marks ? parseInt(body.kcpe_marks) : null;
+              if (applicantMarks == null || isNaN(applicantMarks)) {
                 return res.status(422).json({
-                  error: `${body.level_applied} of ${course.name} requires a minimum KCSE grade of ${minGrade}. Your grade (${applicantGrade}) does not meet this requirement.`,
-                  requirement_type: 'KCSE',
-                  min_grade: minGrade,
-                  applicant_grade: applicantGrade,
+                  error: `${body.level_applied} of ${course.name} requires a KCPE certificate. Please enter your KCPE marks (any score qualifies).`,
+                  requirement_type: 'KCPE',
                 });
               }
             }
-          } else if (req === 'KCPE') {
-            // KCPE is a binary qualifier — any student who completed KCPE qualifies.
-            // Marks are collected for record-keeping only, not for eligibility.
-            const applicantMarks = body.kcpe_marks ? parseInt(body.kcpe_marks) : null;
-            if (applicantMarks == null || isNaN(applicantMarks)) {
-              return res.status(422).json({
-                error: `${body.level_applied} of ${course.name} requires a KCPE certificate. Please enter your KCPE marks (any score qualifies).`,
-                requirement_type: 'KCPE',
-              });
-            }
+            // NONE — no requirement, allow through
           }
-          // NONE — no requirement, allow through
         }
       }
     }
@@ -131,6 +141,7 @@ const submitApplication = async (req, res) => {
         course_id: body.course_id || null,
         department_id: body.department_id || null,
         level_applied: body.level_applied || null,
+        prior_level_completed: body.prior_level_completed || null,
         doc_kcpe: docUrls.doc_kcpe || null,
         doc_kcse: docUrls.doc_kcse || null,
         doc_id_copy: docUrls.doc_id_copy || null,
@@ -523,6 +534,7 @@ const updateApplicationDocuments = async (req, res) => {
     if (body.course_id) updateData.course_id = body.course_id;
     if (body.department_id) updateData.department_id = body.department_id;
     if (body.level_applied) updateData.level_applied = body.level_applied;
+    if (body.prior_level_completed !== undefined) updateData.prior_level_completed = body.prior_level_completed || null;
     
     // Documents
     if (docUrls.doc_kcpe) updateData.doc_kcpe = docUrls.doc_kcpe;
