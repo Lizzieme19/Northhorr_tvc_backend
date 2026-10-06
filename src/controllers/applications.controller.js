@@ -252,87 +252,105 @@ const updateApplicationStatus = async (req, res) => {
       return res.status(400).json({ error: `Status must be one of: ${validStatuses.join(', ')}` });
     }
 
+    // Fetch WITH student relation so we can detect duplicates correctly
     const application = await prisma.application.findUnique({
       where: { id: req.params.id },
+      include: { student: { select: { id: true, admission_no: true } } },
     });
     if (!application) return res.status(404).json({ error: 'Application not found' });
 
-    const updated = await prisma.application.update({
-      where: { id: req.params.id },
-      data: {
-        status,
-        reviewed_by: req.user.id,
-        reviewed_at: new Date(),
-        review_notes: review_notes || null,
-      },
-    });
-
-    // If approved — auto-create student account
-    if (status === 'APPROVED' && !application.student) {
-      // Check if email is provided
+    // ── PRE-APPROVAL VALIDATION (before any DB writes) ──────────────────────
+    if (status === 'APPROVED') {
+      // Guard: already has a linked student — block double-approve
+      if (application.student) {
+        return res.status(400).json({
+          error: `This application is already linked to student ${application.student.admission_no}. Cannot approve again.`,
+        });
+      }
+      // Guard: email required
       if (!application.email) {
-        return res.status(400).json({ 
-          error: 'Cannot approve application without email. Please add email address before approving.' 
+        return res.status(400).json({
+          error: 'Cannot approve application without an email address. Please add it first.',
         });
       }
-
-      // Check if required fields are set
+      // Guard: course + department required
       if (!application.course_id || !application.department_id) {
-        return res.status(400).json({ 
-          error: 'Cannot approve application without course and department. Please set these fields before approving.' 
+        return res.status(400).json({
+          error: 'Cannot approve application without course and department. Please set these fields first.',
         });
       }
+    }
 
-      const bcrypt = require('bcryptjs');
-      const email = application.email;
-      const tempPassword = `NTVC@${new Date().getFullYear()}`;
-      const hashed = await bcrypt.hash(tempPassword, 12);
+    // ── NON-APPROVAL PATH (UNDER_REVIEW / REJECTED) ─────────────────────────
+    if (status !== 'APPROVED') {
+      const updated = await prisma.application.update({
+        where: { id: req.params.id },
+        data: {
+          status,
+          reviewed_by: req.user.id,
+          reviewed_at: new Date(),
+          review_notes: review_notes || null,
+        },
+      });
+      return res.json({ message: `Application ${status.toLowerCase()}`, application: updated });
+    }
 
-      // Create user account
-      let user = await prisma.user.findUnique({ where: { email } });
-      if (!user) {
-        user = await prisma.user.create({
-          data: { email, password: hashed, role: 'STUDENT', must_change_password: true },
-        });
-      }
+    // ── APPROVAL PATH ────────────────────────────────────────────────────────
+    // Prepare all data BEFORE touching the DB, so we can run an atomic transaction
+    const bcrypt = require('bcryptjs');
+    const email = application.email;
+    const tempPassword = `NTVC@${new Date().getFullYear()}`;
+    const hashed = await bcrypt.hash(tempPassword, 12);
 
-      // Determine intake and year
-      const intakeMap = { JANUARY: 'JANUARY', MAY: 'MAY', SEPTEMBER: 'SEPTEMBER' };
-      const studentIntake = intakeMap[intake] || 'SEPTEMBER';
-      const studentYear = parseInt(year) || new Date().getFullYear();
+    const intakeMap = { JANUARY: 'JANUARY', MAY: 'MAY', SEPTEMBER: 'SEPTEMBER' };
+    const studentIntake = intakeMap[intake] || 'SEPTEMBER';
+    const studentYear = parseInt(year) || new Date().getFullYear();
 
-      // Map level (e.g. "Level 3" -> "L3")
-      const levelStr = application.level_applied || 'Level 4';
-      const levelMatch = levelStr.match(/\d+/);
-      const levelCode = levelMatch ? `L${levelMatch[0]}` : 'L4';
+    const levelStr = application.level_applied || 'Level 4';
+    const levelMatch = levelStr.match(/\d+/);
+    const levelCode = levelMatch ? `L${levelMatch[0]}` : 'L4';
 
-      // Use the new admission number generator
-      const admissionNo = await generateAdmissionNumber(
-        application.course_id,
-        levelCode,
-        studentIntake,
-        studentYear
-      );
+    const admissionNo = await generateAdmissionNumber(
+      application.course_id,
+      levelCode,
+      studentIntake,
+      studentYear
+    );
+    const monthShortcode = getMonthShortcode(studentIntake);
+    const initialTerm = await getInitialTermForIntake(studentIntake, studentYear);
 
-      // Get month shortcode for student record
-      const monthShortcode = getMonthShortcode(studentIntake);
+    // Create/find user account (idempotent — safe outside transaction)
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: { email, password: hashed, role: 'STUDENT', must_change_password: true },
+      });
+    }
 
-      // Get initial term based on intake
-      const initialTerm = await getInitialTermForIntake(studentIntake, studentYear);
-
-      const student = await prisma.student.create({
+    // Atomic transaction: status update + student creation succeed or both rollback
+    // This prevents the "APPROVED with no student" state from ever occurring.
+    const [updated, student] = await prisma.$transaction([
+      prisma.application.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'APPROVED',
+          reviewed_by: req.user.id,
+          reviewed_at: new Date(),
+          review_notes: review_notes || null,
+        },
+      }),
+      prisma.student.create({
         data: {
           admission_no: admissionNo,
           user_id: user.id,
           application_id: application.id,
-          course_id: application.course_id || uuidv4(), // fallback
-          department_id: application.department_id || uuidv4(),
+          course_id: application.course_id,
+          department_id: application.department_id,
           level: levelStr,
           intake: studentIntake,
           year: studentYear,
           admission_month_shortcode: monthShortcode,
           current_term_id: initialTerm.id,
-          // Copy ID copies from application to student
           id_copy_front_url: application.id_copy_front_url,
           id_copy_back_url: application.id_copy_back_url,
           parent_id_copy_front_url: application.parent_id_copy_front_url,
@@ -342,55 +360,49 @@ const updateApplicationStatus = async (req, res) => {
           medical_report_url: application.doc_medical,
           status: 'ACTIVE',
         },
-      });
+      }),
+    ]);
 
-      // Create StudentBalance for the initial term
-      await createStudentBalance(student.id, initialTerm.id, levelStr);
+    // Create StudentBalance after the transaction succeeds
+    await createStudentBalance(student.id, initialTerm.id, levelStr);
 
-      // Send admission confirmation email
-      let courseName = 'N/A';
-      let departmentName = 'N/A';
-      
-      if (application.course_id) {
-        const course = await prisma.course.findUnique({ where: { id: application.course_id } });
-        courseName = course?.name || 'N/A';
-      }
-      
-      if (application.department_id) {
-        const department = await prisma.department.findUnique({ where: { id: application.department_id } });
-        departmentName = department?.name || 'N/A';
-      }
-      
-      const studentData = {
-        admission_no: admissionNo,
-        course: courseName,
-        department: departmentName,
-        level: levelStr,
-        intake: studentIntake,
-        year: studentYear,
-      };
-      
-      // Send email asynchronously (don't block response)
-      sendAdmissionConfirmation(email, studentData, tempPassword).catch(err => {
-        console.error('Failed to send admission email:', err);
-      });
-
-      return res.json({
-        message: 'Application approved. Student account created.',
-        application: updated,
-        student_credentials: {
-          email,
-          temporary_password: tempPassword,
-          admission_no: admissionNo,
-          note: 'Student should change password on first login',
-        },
-      });
+    // Fetch course/dept names for the email
+    let courseName = 'N/A';
+    let departmentName = 'N/A';
+    if (application.course_id) {
+      const course = await prisma.course.findUnique({ where: { id: application.course_id } });
+      courseName = course?.name || 'N/A';
+    }
+    if (application.department_id) {
+      const department = await prisma.department.findUnique({ where: { id: application.department_id } });
+      departmentName = department?.name || 'N/A';
     }
 
-    res.json({ message: `Application ${status.toLowerCase()}`, application: updated });
+    // Send email asynchronously — don't block the response
+    sendAdmissionConfirmation(email, {
+      admission_no: admissionNo,
+      course: courseName,
+      department: departmentName,
+      level: levelStr,
+      intake: studentIntake,
+      year: studentYear,
+    }, tempPassword).catch(err => {
+      console.error('Failed to send admission email:', err);
+    });
+
+    return res.json({
+      message: 'Application approved. Student account created.',
+      application: updated,
+      student_credentials: {
+        email,
+        temporary_password: tempPassword,
+        admission_no: admissionNo,
+        note: 'Student should change password on first login',
+      },
+    });
   } catch (err) {
     console.error('Status update error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 };
 
