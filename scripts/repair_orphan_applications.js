@@ -96,8 +96,7 @@ async function main() {
 
       // ── Step 2: guard duplicate user_id ──────────────────────────────────
       // A user can only have ONE student record. If one already exists
-      // (pre-existing or created earlier in this loop), link this orphan
-      // application to it instead of attempting a second student.create().
+      // (pre-existing or created earlier in this loop), we cannot create another.
       const existingStudent = await prisma.student.findUnique({
         where: { user_id: user.id },
         select: { id: true, admission_no: true, application_id: true },
@@ -110,15 +109,9 @@ async function main() {
           continue;
         }
 
-        console.log(`  ⚠️  User already has student ${existingStudent.admission_no} (different application).`);
-        console.log(`     Linking application ${app.application_no} → student ${existingStudent.id}...`);
-
-        await prisma.application.update({
-          where: { id: app.id },
-          data: { student: { connect: { id: existingStudent.id } } },
-        });
-
-        console.log(`  ✅ Linked application to existing student ${existingStudent.admission_no}\n`);
+        console.log(`  ⚠️  User already has student ${existingStudent.admission_no} (from application ${existingStudent.application_id}).`);
+        console.log(`     Cannot link multiple applications to one student (1:1 constraint).`);
+        console.log(`     👉 Please manually REJECT duplicate application ${app.application_no} in the admin portal.\n`);
         console.log('─'.repeat(80));
         continue;
       }
