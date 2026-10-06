@@ -39,32 +39,32 @@ async function generateAdmissionNumber(courseId, level, intakeMonth, year) {
     // Convert year to 2-digit format
     const yearShort = year.toString().slice(-2);
 
-    // Get the last admission number for this course and year
-    const lastStudent = await prisma.student.findFirst({
+    // Get all admission numbers for this course and year to find the true max sequence
+    const students = await prisma.student.findMany({
       where: {
         course_id: courseId,
         year: year
-      },
-      orderBy: {
-        admission_no: 'desc'
       },
       select: {
         admission_no: true
       }
     });
 
-    // Extract the incremental number from the last admission number
-    let nextNumber = 1;
-    if (lastStudent && lastStudent.admission_no) {
-      const parts = lastStudent.admission_no.split('/');
-      if (parts.length >= 5) {
-        // Format is DEPT/LEVEL/NUM/YEAR_SHORT/MONTH, so number is at index 2
-        const lastNumber = parseInt(parts[2], 10);
-        if (!isNaN(lastNumber)) {
-          nextNumber = lastNumber + 1;
+    // Extract the maximum incremental number from the existing admission numbers
+    let maxNumber = 0;
+    for (const student of students) {
+      if (student.admission_no) {
+        const parts = student.admission_no.split('/');
+        if (parts.length >= 5) {
+          // Format is DEPT/LEVEL/NUM/YEAR_SHORT/MONTH, so number is at index 2
+          const num = parseInt(parts[2], 10);
+          if (!isNaN(num) && num > maxNumber) {
+            maxNumber = num;
+          }
         }
       }
     }
+    const nextNumber = maxNumber + 1;
 
     // Format the number with leading zeros (3 digits)
     const formattedNumber = nextNumber.toString().padStart(3, '0');
