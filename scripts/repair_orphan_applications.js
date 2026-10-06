@@ -7,6 +7,10 @@
  * Usage:
  *   node scripts/repair_orphan_applications.js --dry-run   ← just list orphans
  *   node scripts/repair_orphan_applications.js --fix       ← create missing students
+ *
+ * Known edge-cases handled:
+ *   • One email has multiple orphaned applications → duplicate user_id guard.
+ *   • Sequential admission-number generation → DB re-read after each commit.
  */
 
 require('dotenv').config();
@@ -74,7 +78,7 @@ async function main() {
       const tempPassword = `NTVC@${new Date().getFullYear()}`;
       const hashed = await bcrypt.hash(tempPassword, 12);
 
-      // Create or find user
+      // ── Step 1: resolve user ─────────────────────────────────────────────
       let user = await prisma.user.findUnique({ where: { email: app.email } });
       if (!user) {
         user = await prisma.user.create({
@@ -90,7 +94,38 @@ async function main() {
         console.log(`     User account already exists for ${app.email}`);
       }
 
-      // Default intake to SEPTEMBER — admin can correct via portal later
+      // ── Step 2: guard duplicate user_id ──────────────────────────────────
+      // A user can only have ONE student record. If one already exists
+      // (pre-existing or created earlier in this loop), link this orphan
+      // application to it instead of attempting a second student.create().
+      const existingStudent = await prisma.student.findUnique({
+        where: { user_id: user.id },
+        select: { id: true, admission_no: true, application_id: true },
+      });
+
+      if (existingStudent) {
+        if (existingStudent.application_id === app.id) {
+          console.log(`  ℹ️  Already linked (${existingStudent.admission_no}). Skipping.\n`);
+          console.log('─'.repeat(80));
+          continue;
+        }
+
+        console.log(`  ⚠️  User already has student ${existingStudent.admission_no} (different application).`);
+        console.log(`     Linking application ${app.application_no} → student ${existingStudent.id}...`);
+
+        await prisma.application.update({
+          where: { id: app.id },
+          data: { student: { connect: { id: existingStudent.id } } },
+        });
+
+        console.log(`  ✅ Linked application to existing student ${existingStudent.admission_no}\n`);
+        console.log('─'.repeat(80));
+        continue;
+      }
+
+      // ── Step 3: generate admission number AFTER previous creates commit ───
+      // This ensures generateAdmissionNumber reads the latest DB state so
+      // sequential orphans in the same course don't collide on admission_no.
       const studentIntake = 'SEPTEMBER';
       const studentYear = app.reviewed_at
         ? new Date(app.reviewed_at).getFullYear()
@@ -104,6 +139,7 @@ async function main() {
       const monthShortcode = getMonthShortcode(studentIntake);
       const initialTerm = await getInitialTermForIntake(studentIntake, studentYear);
 
+      // ── Step 4: create student record ────────────────────────────────────
       const student = await prisma.student.create({
         data: {
           admission_no: admissionNo,
