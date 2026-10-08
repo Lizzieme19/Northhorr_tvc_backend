@@ -133,6 +133,19 @@ const submitApplication = async (req, res) => {
         parent_relationship: body.parent_relationship || null,
         parent_phone: body.parent_phone || null,
         parent_email: body.parent_email || null,
+        
+        father_present: body.father_present === 'true' || body.father_present === true,
+        father_name: body.father_name || null,
+        father_phone: body.father_phone || null,
+        father_email: body.father_email || null,
+        father_occupation: body.father_occupation || null,
+
+        mother_present: body.mother_present === 'true' || body.mother_present === true,
+        mother_name: body.mother_name || null,
+        mother_phone: body.mother_phone || null,
+        mother_email: body.mother_email || null,
+        mother_occupation: body.mother_occupation || null,
+
         medical_conditions: body.medical_conditions || null,
         allergies: body.allergies || null,
         disability: body.disability || null,
@@ -324,6 +337,14 @@ const updateApplicationStatus = async (req, res) => {
     if (!user) {
       user = await prisma.user.create({
         data: { email, password: hashed, role: 'STUDENT', must_change_password: true },
+      });
+    }
+
+    // Check if this user already has a student record
+    const existingStudent = await prisma.student.findUnique({ where: { user_id: user.id } });
+    if (existingStudent) {
+      return res.status(400).json({
+        error: `This applicant's email is already linked to an existing student (Admission No: ${existingStudent.admission_no}). Cannot create a new student record for this user.`,
       });
     }
 

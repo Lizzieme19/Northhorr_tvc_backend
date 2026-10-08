@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 const prisma = require('../config/db');
 
 const generateTokens = (userId, role) => {
@@ -9,7 +10,7 @@ const generateTokens = (userId, role) => {
     { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
   );
   const refreshToken = jwt.sign(
-    { userId },
+    { userId, jti: uuidv4() },
     process.env.JWT_REFRESH_SECRET,
     { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
   );
