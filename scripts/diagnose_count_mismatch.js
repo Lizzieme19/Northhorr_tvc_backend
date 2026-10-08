@@ -65,9 +65,23 @@ async function main() {
       console.log(`  App No:         ${s.application?.application_no || 'N/A'}`);
       console.log(`  App Status:     ${s.application?.status || 'N/A'} ← should be APPROVED`);
       console.log(`  Reviewed At:    ${s.application?.reviewed_at || 'never'}`);
-      console.log(`\n  💡 Fix options:`);
-      console.log(`     A) Update app status to APPROVED:  UPDATE "Application" SET status='APPROVED' WHERE application_no='${s.application?.application_no}';`);
-      console.log(`     B) Delete the orphan student record (use cleanup_test_data.js pattern)`);
+
+      if (process.argv.includes('--fix') && s.application?.application_no) {
+        console.log(`\n  🔧 FIXING: Updating application status to APPROVED...`);
+        try {
+          await prisma.application.update({
+            where: { application_no: s.application.application_no },
+            data: { status: 'APPROVED', reviewed_at: new Date() }
+          });
+          console.log(`  ✅ Successfully updated to APPROVED.`);
+        } catch (err) {
+          console.error(`  ❌ Failed to update: ${err.message}`);
+        }
+      } else {
+        console.log(`\n  💡 Fix options:`);
+        console.log(`     A) Run this script with --fix to automatically set to APPROVED`);
+        console.log(`     B) Delete the orphan student record (use cleanup_test_data.js pattern)`);
+      }
       console.log('─'.repeat(80));
     }
   }
