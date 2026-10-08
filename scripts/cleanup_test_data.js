@@ -30,6 +30,7 @@ const TEST_NAMES_TO_DELETE = [
   'test test',         // BKT/L4/001/26/S
   'FRANK Test',        // PB/L5/001/26/S
   'Simiyu Frankline',  // LPT/L5/001/26/S
+  'qqqq wwww',         // FDT/L4/001/26/J
 ];
 
 // Normalise for comparison: lowercase and collapse extra spaces
