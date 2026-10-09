@@ -22,6 +22,8 @@ const {
   assignStudentTerm,
   bulkAssignTerm,
   importStudentsCsv,
+  deleteStudent,
+  getDuplicates,
 } = require('../controllers/students.controller');
 
 /**
@@ -465,5 +467,41 @@ router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 
  *         description: CSV import results
  */
 router.post('/import/csv', authenticate, requireRoles('ADMIN'), upload.single('csv_file'), importStudentsCsv);
+
+/**
+ * @swagger
+ * /api/students/duplicates:
+ *   get:
+ *     summary: Find students with duplicate names (Admin only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Groups of duplicate students
+ */
+router.get('/duplicates', authenticate, requireRoles('ADMIN'), getDuplicates);
+
+/**
+ * @swagger
+ * /api/students/{id}:
+ *   delete:
+ *     summary: Delete a student and all linked records (Admin only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Student deleted
+ *       404:
+ *         description: Student not found
+ */
+router.delete('/:id', authenticate, requireRoles('ADMIN'), deleteStudent);
 
 module.exports = router;

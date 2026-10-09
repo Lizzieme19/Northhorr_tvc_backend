@@ -1027,9 +1027,101 @@ const importStudentsCsv = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// deleteStudent — cascades through all FK-linked records in the correct order
+// ---------------------------------------------------------------------------
+const deleteStudent = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id },
+      include: {
+        user: { select: { id: true, email: true } },
+        application: { select: { id: true } },
+      },
+    });
+
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    // Delete in FK dependency order
+    await prisma.studentBalance.deleteMany({ where: { student_id: id } });
+    await prisma.feeRecord.deleteMany({ where: { student_id: id } });
+    await prisma.studentProgression.deleteMany({ where: { student_id: id } });
+    await prisma.admissionLetter.deleteMany({ where: { student_id: id } });
+
+    if (student.user?.id) {
+      await prisma.refreshToken.deleteMany({ where: { user_id: student.user.id } });
+    }
+
+    await prisma.student.delete({ where: { id } });
+
+    if (student.application?.id) {
+      await prisma.application.delete({ where: { id: student.application.id } });
+    }
+
+    if (student.user?.id) {
+      await prisma.user.delete({ where: { id: student.user.id } });
+    }
+
+    return res.json({ message: `Student ${student.admission_no} and all linked records deleted successfully.` });
+  } catch (err) {
+    console.error('deleteStudent error:', err);
+    res.status(500).json({ error: 'Failed to delete student' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// getDuplicates — finds students sharing the same (surname + other_names)
+// ---------------------------------------------------------------------------
+const getDuplicates = async (req, res) => {
+  try {
+    const students = await prisma.student.findMany({
+      include: {
+        application: { select: { surname: true, other_names: true, email: true } },
+        course: { select: { name: true } },
+        department: { select: { name: true } },
+      },
+      orderBy: { created_at: 'asc' },
+    });
+
+    // Group by normalised full name
+    const groups = {};
+    for (const s of students) {
+      const name = `${s.application?.surname || ''} ${s.application?.other_names || ''}`.trim().toLowerCase();
+      if (!groups[name]) groups[name] = [];
+      groups[name].push(s);
+    }
+
+    // Keep only groups with more than 1 student
+    const duplicates = Object.values(groups)
+      .filter(g => g.length > 1)
+      .map(g => ({
+        name: `${g[0].application?.surname || ''} ${g[0].application?.other_names || ''}`.trim(),
+        count: g.length,
+        students: g.map(s => ({
+          id: s.id,
+          admission_no: s.admission_no,
+          course: s.course?.name,
+          department: s.department?.name,
+          level: s.level,
+          intake: s.intake,
+          status: s.status,
+          email: s.application?.email,
+          created_at: s.created_at,
+        })),
+      }));
+
+    return res.json({ total_duplicate_groups: duplicates.length, duplicates });
+  } catch (err) {
+    console.error('getDuplicates error:', err);
+    res.status(500).json({ error: 'Failed to fetch duplicates' });
+  }
+};
+
 module.exports = {
   getStudents, getStudentById, getMyProfile, updateStudent,
   updateMyProfile, uploadPhoto, uploadStudentDocuments, uploadMyDocuments, getStudentStats,
   uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm,
-  getMyEnrollments, assignStudentTerm, bulkAssignTerm, importStudentsCsv
+  getMyEnrollments, assignStudentTerm, bulkAssignTerm, importStudentsCsv,
+  deleteStudent, getDuplicates,
 };
