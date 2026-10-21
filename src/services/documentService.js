@@ -94,7 +94,7 @@ async function drawHeader(doc, subtitle = '', customLogos = {}) {
   
   doc
     .fillColor(GREY).fontSize(8).font('Helvetica')
-    .text('P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 722 000 000  |  northhorrtvc@gmail.com  |  www.northhorrtvc.ac.ke', textLeft, doc.y + 4, { width: textWidth, align: 'center' });
+    .text('P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 721 998 512  |  northhorrtvc@gmail.com  |  www.northhorrtvc.ac.ke', textLeft, doc.y + 4, { width: textWidth, align: 'center' });
 
   if (subtitle) {
     doc
@@ -885,14 +885,16 @@ async function generateRFQ(rfq) {
     if (items.length > 0) {
       doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('ITEMS REQUIRED', pageLeft, y);
       y = doc.y + 4;
-      const cols = { no: 28, name: 170, desc: 130, spec: 120, qty: 40, unit: 52 };
+      // Columns must sum to ≤ 483px (A4 with 56px margins)
+      // no(20) + name(155) + desc(100) + spec(105) + qty(38) + gap(4) + unit(55) = 477 ✓
+      const cols = { no: 20, name: 155, desc: 100, spec: 105, qty: 38, unit: 55 };
       doc.rect(pageLeft, y, contentWidth, 22).fillColor(GREEN).fill();
       doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#FFFFFF');
-      let cx = pageLeft + 6;
+      let cx = pageLeft + 4;
       doc.text('#', cx, y + 6, { width: cols.no }); cx += cols.no;
       doc.text('Item Name', cx, y + 6, { width: cols.name }); cx += cols.name;
       doc.text('Description', cx, y + 6, { width: cols.desc }); cx += cols.desc;
-      doc.text('Specifications', cx, y + 6, { width: cols.spec }); cx += cols.spec;
+      doc.text('Specifications', cx, y + 6, { width: cols.spec }); cx += cols.spec + 4;
       doc.text('Qty', cx, y + 6, { width: cols.qty, align: 'right' }); cx += cols.qty + 4;
       doc.text('Unit', cx, y + 6, { width: cols.unit });
       y += 22;
@@ -901,13 +903,13 @@ async function generateRFQ(rfq) {
         doc.rect(pageLeft, y, contentWidth, 20).fillColor(bg).fill();
         doc.rect(pageLeft, y, contentWidth, 20).strokeColor('#E5E7EB').lineWidth(0.2).stroke();
         doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
-        cx = pageLeft + 6;
+        cx = pageLeft + 4;
         doc.text(`${idx + 1}`, cx, y + 5, { width: cols.no }); cx += cols.no;
         doc.text(item.item_name, cx, y + 5, { width: cols.name }); cx += cols.name;
         doc.text(item.description || '-', cx, y + 5, { width: cols.desc }); cx += cols.desc;
-        doc.text(item.specifications || '-', cx, y + 5, { width: cols.spec }); cx += cols.spec;
+        doc.text(item.specifications || '-', cx, y + 5, { width: cols.spec }); cx += cols.spec + 4;
         doc.text(String(item.quantity), cx, y + 5, { width: cols.qty, align: 'right' }); cx += cols.qty + 4;
-        doc.text('Unit', cx, y + 5, { width: cols.unit });
+        doc.text(item.unit || 'pcs', cx, y + 5, { width: cols.unit });
         y += 20;
       });
       y += 14;
