@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { generateAdmissionNumber } = require('../utils/admissionNumberGenerator');
 
 // POST /api/term-progression/admit - Admit student to new term with fee carry-over
 const admitStudentToTerm = async (req, res) => {
@@ -114,6 +115,31 @@ const admitStudentToTerm = async (req, res) => {
     // Create progression record if level changed
     let progression = null;
     if (new_level && new_level !== student.level) {
+      // ─── Generate new admission number for the new level ───
+      let newAdmissionNo = student.admission_no; // fallback: keep existing
+      try {
+        newAdmissionNo = await generateAdmissionNumber(
+          student.course_id,
+          new_level,
+          student.intake,  // e.g. 'JANUARY', 'MAY', 'SEPTEMBER'
+          student.year
+        );
+      } catch (genErr) {
+        console.warn('Could not generate new admission number, keeping existing:', genErr.message);
+      }
+
+      const oldAdmissionNo = student.admission_no;
+
+      // Update student: new level + new admission number
+      await prisma.student.update({
+        where: { id: student_id },
+        data: {
+          level: new_level,
+          admission_no: newAdmissionNo,
+        },
+      });
+
+      // Record progression with both admission numbers
       progression = await prisma.studentProgression.create({
         data: {
           student_id,
@@ -122,10 +148,16 @@ const admitStudentToTerm = async (req, res) => {
           term_id: new_term_id,
           academic_year: newTerm.academic_year,
           promoted_by: req.user.id,
-          notes: notes || `Progressed from ${student.level} to ${new_level}`,
-          fee_clearance: carryoverAmount <= 0, // Cleared if no debt carried over
+          notes: notes || `Promoted from ${student.level} to ${new_level}`,
+          fee_clearance: carryoverAmount <= 0,
+          old_admission_no: oldAdmissionNo,
+          new_admission_no: newAdmissionNo,
         },
       });
+
+      // Return updated student data in response
+      updatedStudent.admission_no = newAdmissionNo;
+      updatedStudent.level = new_level;
     }
 
     res.json({
@@ -156,7 +188,7 @@ const getStudentProgression = async (req, res) => {
         term: { select: { name: true, academic_year: true } },
         promoter: { select: { email: true } },
       },
-      orderBy: { created_at: 'desc' },
+      orderBy: { created_at: 'asc' },
     });
 
     res.json(progressions);
@@ -203,9 +235,51 @@ const updateProgressionNotes = async (req, res) => {
   }
 };
 
+// GET /api/term-progression/admin/all - Admin: list all progressions with filters
+const getAllProgressions = async (req, res) => {
+  try {
+    const { level, academic_year, page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = {};
+    if (level) where.to_level = level;
+    if (academic_year) where.academic_year = academic_year;
+
+    const [progressions, total] = await Promise.all([
+      prisma.studentProgression.findMany({
+        where,
+        include: {
+          student: {
+            select: {
+              id: true,
+              admission_no: true,
+              level: true,
+              user: { select: { first_name: true, last_name: true, email: true } },
+              course: { select: { name: true, shortcode: true } },
+              department: { select: { name: true } },
+            },
+          },
+          term: { select: { name: true, academic_year: true } },
+          promoter: { select: { email: true, first_name: true, last_name: true } },
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.studentProgression.count({ where }),
+    ]);
+
+    res.json({ progressions, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 module.exports = {
   admitStudentToTerm,
   getStudentProgression,
   getStudentBalances,
   updateProgressionNotes,
+  getAllProgressions,
 };

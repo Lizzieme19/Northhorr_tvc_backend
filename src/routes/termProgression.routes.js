@@ -7,6 +7,7 @@ const {
   getStudentProgression,
   getStudentBalances,
   updateProgressionNotes,
+  getAllProgressions,
 } = require('../controllers/termProgression.controller');
 
 /**
@@ -61,6 +62,9 @@ router.post('/admit', authenticate, requireRoles('ADMIN'), admitStudentToTerm);
  *       200:
  *         description: Progression history
  */
+// IMPORTANT: /admin/all must be defined BEFORE /:student_id to avoid routing conflict
+router.get('/admin/all', authenticate, requireRoles('ADMIN'), getAllProgressions);
+
 router.get('/:student_id', authenticate, getStudentProgression);
 
 /**

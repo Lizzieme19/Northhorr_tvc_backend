@@ -874,6 +874,10 @@ model StudentProgression {
   notes           String?
   fee_clearance   Boolean  @default(false) // Whether fees were cleared before progression
 
+  // Admission number tracking — old is preserved, new is generated on promotion
+  old_admission_no  String?  // Admission number before this promotion
+  new_admission_no  String?  // Newly generated admission number after promotion
+
   created_at      DateTime @default(now())
 
   student         Student  @relation(fields: [student_id], references: [id])
