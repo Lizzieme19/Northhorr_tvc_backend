@@ -401,6 +401,7 @@ const updateApplicationStatus = async (req, res) => {
 
     // Send email asynchronously — don't block the response
     sendAdmissionConfirmation(email, {
+      student_name: `${application.surname} ${application.other_names}`,
       admission_no: admissionNo,
       course: courseName,
       department: departmentName,
