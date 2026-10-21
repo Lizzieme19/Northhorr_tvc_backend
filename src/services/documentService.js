@@ -94,7 +94,7 @@ async function drawHeader(doc, subtitle = '', customLogos = {}) {
   
   doc
     .fillColor(GREY).fontSize(8).font('Helvetica')
-    .text('P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 700 000 000  |  admissions@ntvc.ac.ke', textLeft, doc.y + 4, { width: textWidth, align: 'center' });
+    .text('P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 722 000 000  |  northhorrtvc@gmail.com  |  www.northhorrtvc.ac.ke', textLeft, doc.y + 4, { width: textWidth, align: 'center' });
 
   if (subtitle) {
     doc
@@ -115,7 +115,7 @@ function drawFooter(doc, refText = '') {
   doc
     .fillColor(LIGHT_GREY).fontSize(7.5).font('Helvetica')
     .text(
-      `NTVC is accredited by TVETA & KNQA  |  www.ntvc.ac.ke  |  info@ntvc.ac.ke${refText ? '  |  ' + refText : ''}`,
+      `NTVC is accredited by TVETA & KNQA  |  www.northhorrtvc.ac.ke  |  northhorrtvc@gmail.com${refText ? '  |  ' + refText : ''}`,
       pageLeft, footerY + 6, { align: 'center', width: pageRight - pageLeft }
     );
 }
@@ -728,12 +728,12 @@ async function generateLPO(lpo) {
     doc.rect(col2X, y, colW, infoBoxH).fillColor('#F9FAFB').fill();
     doc.rect(col2X, y, colW, infoBoxH).strokeColor('#E5E7EB').lineWidth(0.4).stroke();
     doc.font('Helvetica-Bold').fontSize(9).fillColor(GREEN).text('ISSUING AUTHORITY', col2X + 10, y + 8);
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK).text('North Horr TVC', col2X + 10, y + 22);
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK).text('North Horr Technical & Vocational College', col2X + 10, y + 22, { width: colW - 20 });
     doc.font('Helvetica').fontSize(9).fillColor(GREY)
-      .text(`Department: ${lpo.department?.name || 'N/A'}`, col2X + 10, doc.y)
-      .text(`Issue Date: ${fmtDate(lpo.issue_date)}`, col2X + 10)
-      .text(`Delivery Date: ${fmtDate(lpo.delivery_date)}`, col2X + 10)
-      .text(`Payment Terms: ${lpo.payment_terms || 'As agreed'}`, col2X + 10);
+      .text(`Department: ${lpo.department?.name || 'N/A'}`, col2X + 10, doc.y + 2)
+      .text(`Issue Date: ${fmtDate(lpo.issue_date || lpo.created_at)}`, col2X + 10)
+      .text(`Delivery Date: ${fmtDate(lpo.delivery_date) || 'As agreed'}`, col2X + 10)
+      .text(`Payment Terms: ${lpo.payment_terms || '30 days net on receipt of invoice'}`, col2X + 10, doc.y, { width: colW - 20 });
     y += infoBoxH + 14;
 
     // Items table
@@ -781,24 +781,26 @@ async function generateLPO(lpo) {
 
     // T&C — pulled from DB or defaults
     const terms = getTerms();
-    const tcBoxH = 20 + terms.length * 11 + 10;
+    const tcLineH = 14;
+    const tcBoxH = 22 + terms.length * tcLineH + 12;
     doc.rect(pageLeft, y, contentWidth, tcBoxH).fillColor('#F9FAFB').fill();
     doc.rect(pageLeft, y, contentWidth, tcBoxH).strokeColor('#E5E7EB').lineWidth(0.4).stroke();
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(GREEN).text('TERMS & CONDITIONS', pageLeft + 10, y + 8);
-    doc.font('Helvetica').fontSize(8).fillColor(DARK);
-    terms.forEach((t, i) => doc.text(t, pageLeft + 10, y + 22 + i * 11, { width: contentWidth - 20 }));
+    doc.rect(pageLeft, y, 4, tcBoxH).fillColor(GREEN).fill();
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(GREEN).text('TERMS & CONDITIONS', pageLeft + 14, y + 8);
+    doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
+    terms.forEach((t, i) => doc.text(t, pageLeft + 14, y + 24 + i * tcLineH, { width: contentWidth - 28 }));
     y += tcBoxH + 16;
 
     // Signature block
     const sigW = (contentWidth - 20) / 2;
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('Prepared by:', pageLeft, y);
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('Approved by:', pageLeft + sigW + 20, y);
-    y += 16;
-    doc.moveTo(pageLeft, y + 30).lineTo(pageLeft + sigW - 10, y + 30).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
-    doc.moveTo(pageLeft + sigW + 20, y + 30).lineTo(pageLeft + contentWidth, y + 30).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('Prepared by (Procurement):', pageLeft, y);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('Approved by (Principal / HOD):', pageLeft + sigW + 20, y);
+    y += 40;
+    doc.moveTo(pageLeft, y).lineTo(pageLeft + sigW - 10, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
+    doc.moveTo(pageLeft + sigW + 20, y).lineTo(pageLeft + contentWidth, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
     doc.font('Helvetica').fontSize(8).fillColor(GREY)
-      .text('Signature & Date', pageLeft, y + 33)
-      .text(lpo.approver ? `${lpo.approver.email}  |  Signature & Date` : 'Signature & Date', pageLeft + sigW + 20, y + 33);
+      .text('Name, Signature & Date', pageLeft, y + 4)
+      .text(lpo.approver?.email ? `${lpo.approver.email}  |  Signature & Date` : 'Name, Signature & Date', pageLeft + sigW + 20, y + 4);
     drawFooter(doc, lpo.lpo_no);
   });
 }
@@ -813,17 +815,19 @@ async function generateRFQ(rfq) {
       college: await fetchImageBuffer(template?.college_logo_url)
     };
     const textBlocks = template?.text_blocks || {};
+    const closingDateStr = rfq.closing_date ? fmtDate(rfq.closing_date) : 'the date indicated above';
     const defaultInstructions = [
-      `1. Submit your sealed quotation to the Procurement Office by the closing date indicated.`,
+      `1. Submit your quotation to the Procurement Office, North Horr TVC, on or before ${closingDateStr} at 5:00 PM.`,
       '2. Quote prices inclusive of all taxes, delivery charges, and applicable levies.',
-      '3. Validity of your quotation must be for a minimum of 30 days from the closing date.',
-      '4. Attach copies of your business registration and tax compliance certificates.',
-      '5. NTVC is not bound to accept the lowest or any quotation received.',
-      '6. Late submissions will not be considered under any circumstances.',
+      '3. Your quotation must remain valid for a minimum of 30 days from the closing date.',
+      '4. Attach copies of your business registration certificate and current tax compliance certificate.',
+      '5. North Horr TVC is not bound to accept the lowest or any quotation received.',
+      '6. Quotations received after the closing date and time will not be considered.',
+      '7. For enquiries contact the Procurement Office: northhorrtvc@gmail.com  |  www.northhorrtvc.ac.ke',
     ];
     const getInstructions = () => {
       const t = textBlocks['instructions'];
-      if (t) return t.split('\n').filter(Boolean);
+      if (t) return t.replace(/\[CLOSING_DATE\]/g, closingDateStr).split('\n').filter(Boolean);
       return defaultInstructions;
     };
 
@@ -898,18 +902,25 @@ async function generateRFQ(rfq) {
     }
 
     const instructions = getInstructions();
-    const instBoxH = 20 + instructions.length * 11 + 10;
+    const instLineH = 14;
+    const instBoxH = 24 + instructions.length * instLineH + 14;
     doc.rect(pageLeft, y, contentWidth, instBoxH).fillColor('#F0F9FF').fill();
     doc.rect(pageLeft, y, 4, instBoxH).fillColor('#0EA5E9').fill();
     doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#0369A1').text('INSTRUCTIONS TO BIDDERS', pageLeft + 14, y + 8);
     doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
-    instructions.forEach((inst, i) => doc.text(inst, pageLeft + 14, y + 24 + i * 11, { width: contentWidth - 28 }));
-    y += instBoxH + 14;
+    instructions.forEach((inst, i) => doc.text(inst, pageLeft + 14, y + 26 + i * instLineH, { width: contentWidth - 28 }));
+    y += instBoxH + 16;
 
+    // Signature block
+    const sigLineW = (contentWidth - 20) / 2;
     doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('Issued by:', pageLeft, y);
-    y += 36;
-    doc.moveTo(pageLeft, y).lineTo(pageLeft + 200, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
-    doc.font('Helvetica').fontSize(8.5).fillColor(GREY).text('Procurement Officer — NTVC  |  Signature & Date', pageLeft, y + 4);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('Acknowledged by (Supplier):', pageLeft + sigLineW + 20, y);
+    y += 38;
+    doc.moveTo(pageLeft, y).lineTo(pageLeft + sigLineW - 10, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
+    doc.moveTo(pageLeft + sigLineW + 20, y).lineTo(pageLeft + contentWidth, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
+    doc.font('Helvetica').fontSize(8).fillColor(GREY)
+      .text('Procurement Officer, North Horr TVC  |  Signature & Date', pageLeft, y + 4)
+      .text('Supplier Name, Signature & Date', pageLeft + sigLineW + 20, y + 4);
     drawFooter(doc, rfq.rfq_no);
   });
 }
@@ -939,10 +950,11 @@ async function generateGRN(grn) {
     const metaH = 56;
     doc.rect(pageLeft, y, contentWidth, metaH).fillColor('#F9FAFB').fill();
     doc.rect(pageLeft, y, contentWidth, metaH).strokeColor('#E5E7EB').lineWidth(0.4).stroke();
+    doc.rect(pageLeft, y, 4, metaH).fillColor(GREEN).fill();
     [
       ['LPO Reference:', grn.lpo?.lpo_no || 'N/A'],
       ['Supplier:', grn.lpo?.supplier?.name || 'N/A'],
-      ['Received Date:', fmtDate(grn.received_date)],
+      ['Date Received:', fmtDate(grn.received_date || grn.created_at)],
       ['Department:', grn.lpo?.department?.name || 'N/A'],
     ].forEach(([label, val], i) => {
       const col = i % 2;
@@ -993,11 +1005,12 @@ async function generateGRN(grn) {
     }
 
     y += 16;
+
     const sigW = (contentWidth - 20) / 2;
     doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK)
-      .text('Received by:', pageLeft, y)
-      .text('Verified by:', pageLeft + sigW + 20, y);
-    y += 36;
+      .text('Received by (Stores Officer):', pageLeft, y)
+      .text('Verified by (Procurement / Finance):', pageLeft + sigW + 20, y);
+    y += 40;
     doc.moveTo(pageLeft, y).lineTo(pageLeft + sigW - 10, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
     doc.moveTo(pageLeft + sigW + 20, y).lineTo(pageLeft + contentWidth, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
     doc.font('Helvetica').fontSize(8).fillColor(GREY)
