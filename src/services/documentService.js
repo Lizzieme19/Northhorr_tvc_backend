@@ -125,6 +125,11 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
+function fmtStatus(s) {
+  if (!s) return '';
+  return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function fmtKES(amount) {
   if (amount === null || amount === undefined) return 'N/A';
   return `KES ${Number(amount).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -685,16 +690,21 @@ async function generateLPO(lpo) {
       college: await fetchImageBuffer(template?.college_logo_url)
     };
     const textBlocks = template?.text_blocks || {};
+    const deliveryDateStr = fmtDate(lpo.delivery_date);
     const defaultTerms = [
       '1. Goods/services must conform strictly to the specifications stated above.',
-      '2. Delivery must be made to the stated department by the delivery date indicated.',
+      `2. Delivery must be made to the stated department by ${deliveryDateStr}.`,
       '3. This LPO must accompany all deliveries and invoices.',
-      '4. NTVC reserves the right to reject substandard goods without obligation.',
+      '4. North Horr TVC reserves the right to reject substandard goods without obligation.',
       '5. Payment shall be made within 30 days of receipt of goods and a verified invoice.',
+      '6. All goods must be delivered in good condition conforming to specified quantities.',
     ];
     const getTerms = () => {
       const t = textBlocks['terms'];
-      if (t) return t.split('\n').filter(Boolean);
+      if (t) return t
+        .replace(/\[DELIVERY_DATE\]/g, deliveryDateStr)
+        .replace(/\[CLOSING_DATE\]/g, deliveryDateStr)
+        .split('\n').filter(Boolean);
       return defaultTerms;
     };
 
@@ -708,7 +718,7 @@ async function generateLPO(lpo) {
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
       .text(`LPO NO: ${lpo.lpo_no}`, pageLeft + 12, y + 7, { continued: true, width: contentWidth / 2 });
     doc.font('Helvetica').fontSize(10).fillColor('#FFFFFF')
-      .text(`Status: ${lpo.status}`, { align: 'right', width: contentWidth / 2 - 12 });
+      .text(`Status: ${fmtStatus(lpo.status)}`, { align: 'right', width: contentWidth / 2 - 12 });
     y += 28 + 10;
 
     // Two-column info
@@ -736,19 +746,21 @@ async function generateLPO(lpo) {
       .text(`Payment Terms: ${lpo.payment_terms || '30 days net on receipt of invoice'}`, col2X + 10, doc.y, { width: colW - 20 });
     y += infoBoxH + 14;
 
-    // Items table
+    // Items table — column widths must sum to ≤ contentWidth (483px on A4 with 56px margins)
+    // no(24) + desc(180) + spec(90) + gap(4) + qty(40) + gap(4) + unit(76) + gap(4) + total(76) = 498 > 483
+    // Adjusted: no(22) + desc(170) + spec(80) + gap(4) + qty(38) + gap(4) + unit(78) + gap(4) + total(78) = 478 ✓
     doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('ORDER ITEMS', pageLeft, y);
     y = doc.y + 4;
-    const colWidths = { no: 28, desc: 200, spec: 100, qty: 44, unit: 84, total: 84 };
+    const colWidths = { no: 22, desc: 170, spec: 80, qty: 38, unit: 78, total: 78 };
     doc.rect(pageLeft, y, contentWidth, 22).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#FFFFFF');
-    let cx = pageLeft + 6;
+    let cx = pageLeft + 4;
     doc.text('#', cx, y + 6, { width: colWidths.no }); cx += colWidths.no;
     doc.text('Description', cx, y + 6, { width: colWidths.desc }); cx += colWidths.desc;
-    doc.text('Specifications', cx, y + 6, { width: colWidths.spec }); cx += colWidths.spec;
+    doc.text('Specifications', cx, y + 6, { width: colWidths.spec }); cx += colWidths.spec + 4;
     doc.text('Qty', cx, y + 6, { width: colWidths.qty, align: 'right' }); cx += colWidths.qty + 4;
     doc.text('Unit Price', cx, y + 6, { width: colWidths.unit, align: 'right' }); cx += colWidths.unit + 4;
-    doc.text('Total', cx, y + 6, { width: colWidths.total, align: 'right' });
+    doc.text('Total (KES)', cx, y + 6, { width: colWidths.total, align: 'right' });
     y += 22;
 
     lpo.items.forEach((item, idx) => {
@@ -757,10 +769,10 @@ async function generateLPO(lpo) {
       doc.rect(pageLeft, y, contentWidth, rowH).fillColor(bg).fill();
       doc.rect(pageLeft, y, contentWidth, rowH).strokeColor('#E5E7EB').lineWidth(0.2).stroke();
       doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
-      cx = pageLeft + 6;
+      cx = pageLeft + 4;
       doc.text(`${idx + 1}`, cx, y + 5, { width: colWidths.no }); cx += colWidths.no;
       doc.text(item.item_name, cx, y + 5, { width: colWidths.desc }); cx += colWidths.desc;
-      doc.text(item.specifications || '-', cx, y + 5, { width: colWidths.spec }); cx += colWidths.spec;
+      doc.text(item.specifications || '-', cx, y + 5, { width: colWidths.spec }); cx += colWidths.spec + 4;
       doc.text(String(item.quantity), cx, y + 5, { width: colWidths.qty, align: 'right' }); cx += colWidths.qty + 4;
       doc.text(fmtKES(item.unit_price), cx, y + 5, { width: colWidths.unit, align: 'right' }); cx += colWidths.unit + 4;
       doc.font('Helvetica-Bold').text(fmtKES(item.total_price), cx, y + 5, { width: colWidths.total, align: 'right' });
@@ -769,7 +781,7 @@ async function generateLPO(lpo) {
 
     doc.rect(pageLeft, y, contentWidth, 24).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#FFFFFF')
-      .text('TOTAL AMOUNT', pageLeft + 6, y + 6, { width: contentWidth - colWidths.total - 10 })
+      .text('TOTAL AMOUNT', pageLeft + 6, y + 6, { width: contentWidth - colWidths.total - 14 })
       .text(fmtKES(lpo.total_amount), pageLeft + contentWidth - colWidths.total - 4, y + 6, { width: colWidths.total, align: 'right' });
     y += 24 + 14;
 
@@ -840,7 +852,7 @@ async function generateRFQ(rfq) {
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
       .text(`RFQ NO: ${rfq.rfq_no}`, pageLeft + 12, y + 7, { continued: true, width: contentWidth / 2 });
     doc.font('Helvetica').fontSize(10).fillColor('#FFFFFF')
-      .text(`Status: ${rfq.status}`, { align: 'right', width: contentWidth / 2 - 12 });
+      .text(`Status: ${fmtStatus(rfq.status)}`, { align: 'right', width: contentWidth / 2 - 12 });
     y += 28 + 10;
 
     const metaH = 68;
@@ -944,7 +956,7 @@ async function generateGRN(grn) {
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
       .text(`GRN NO: ${grn.grn_no}`, pageLeft + 12, y + 7, { continued: true, width: contentWidth / 2 });
     doc.font('Helvetica').fontSize(10).fillColor('#FFFFFF')
-      .text(`Status: ${grn.status}`, { align: 'right', width: contentWidth / 2 - 12 });
+      .text(`Status: ${fmtStatus(grn.status)}`, { align: 'right', width: contentWidth / 2 - 12 });
     y += 28 + 10;
 
     const metaH = 56;
