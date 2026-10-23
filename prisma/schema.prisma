@@ -37,6 +37,7 @@ enum StudentStatus {
   DEFERRED
   GRADUATED
   WITHDRAWN
+  ATTACHMENT
 }
 
 enum Intake {
