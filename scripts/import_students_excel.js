@@ -124,36 +124,90 @@ function parseCycle(raw) {
 }
 
 // ---------------------------------------------------------------------------
-// COURSE ALIASES  (lowercase Excel string → DB shortcode)
+// COURSE ALIASES  (lowercase Excel string → actual DB shortcode)
+// All shortcodes verified against the live DB course list
 // ---------------------------------------------------------------------------
 const COURSE_ALIASES = {
-  // Electrical
-  'electrical': 'CEE', 'electrical engineering': 'CEE',
-  'electrical eng': 'CEE', 'electrical installation': 'CEE',
-  // Agriculture
-  'agriculture': 'CGA', 'general agriculture': 'CGA', 'animal production': 'CGA',
-  // ICT
+  // Electrical Engineering (DB: EE, EI)
+  'electrical': 'EE', 'electrical engineering': 'EE',
+  'electrical eng': 'EE', 'electrical installation': 'EI',
+  // Agriculture (DB: SAG, GAG, AP, AEX)
+  'agriculture': 'SAG', 'general agriculture': 'GAG',
+  'sustainable agriculture': 'SAG',
+  'animal production': 'AP', 'animal health': 'AHP',
+  'agricultural extension': 'AEX',
+  // ICT (DB: ICT, IO, CO)
   'ict': 'ICT', 'information communication technology': 'ICT',
-  'information technology': 'ICT', 'computer': 'ICT',
+  'information technology': 'ICT', 'computer': 'CO',
+  'ict technician': 'ICT', 'ict operator': 'IO',
+  // Social Work (DB: SW)
+  'social work': 'SW', 'community development': 'SW',
+  // Fashion Design (DB: FD)
+  'fashion & design': 'FD', 'fashion and design': 'FD',
+  'fahion & design': 'FD', 'fashion design': 'FD',
+  'fashion': 'FD',
+  // Hair Dressing / Cosmetology (DB: COS)
+  'hair dressing': 'COS', 'hairdressing': 'COS',
+  'cosmetology': 'COS', 'hair': 'COS',
+  // Human Resource (DB: HR)
+  'human resource': 'HR', 'human resource management': 'HR',
+  // Supply Chain / Procurement (DB: PM = Procurement Management)
+  'supply chain': 'PM', 'supply chain management': 'PM',
+  'procurement': 'PM', 'procurement management': 'PM',
+  'storekeeping': 'SK',
+  // Food Science / Food Technology (DB: FDT)
+  'food science': 'FDT', 'food processing': 'FDT',
+  'food technology': 'FDT',
+  // Building Technology (DB: BT)
+  'building technology': 'BT', 'build technology': 'BT',
+  'building tech': 'BT', 'building': 'BT',
+  // Civil Engineering (DB: CE)
+  'civil engineering': 'CE',
+  // Plumbing (DB: PLB)
+  'plumbing': 'PLB',
+  // Business Management — not yet in DB; map to closest (PM) until course is created
+  'business management': 'PM', 'bussiness management': 'PM',
+  // Other trades
+  'carpentry': 'CJ', 'carpentry and joinery': 'CJ',
+  'masonry': 'MSN', 'painting': 'PD',
+  'solar': 'SPV', 'refrigeration': 'RAC',
+};
+
+/**
+ * ADM_PREFIX_MAP — infer course from the admission number prefix
+ * when the Excel course column is empty/null.
+ * Covers the most common prefixes seen in the data.
+ */
+const ADM_PREFIX_MAP = {
+  // Electrical
+  'CEE': 'EE', 'DEE': 'EE', 'AEE': 'EE', 'ECE': 'EE', 'ETE': 'EE', 'EE': 'EE',
+  // ICT
+  'CICT': 'ICT', 'DICT': 'ICT', 'DIT': 'ICT', 'CIT': 'ICT', 'ICT': 'ICT',
   // Social Work
-  'social work': 'DSW', 'community development': 'DSW',
-  // Fashion
-  'fashion & design': 'CFD', 'fashion and design': 'CFD',
-  'fahion & design': 'CFD', 'fashion design': 'CFD',
-  // Hair Dressing
-  'hair dressing': 'CHD', 'hairdressing': 'CHD',
+  'CSW': 'SW', 'DSW': 'SW', 'ASW': 'SW',
   // Human Resource
-  'human resource': 'CHR', 'human resource management': 'CHR',
+  'CHRM': 'HR', 'DHRM': 'HR', 'HRM': 'HR', 'CHR': 'HR', 'HR': 'HR',
+  // Building Technology
+  'CBT': 'BT', 'DBT': 'BT', 'ABT': 'BT', 'BT': 'BT',
+  // Civil Engineering
+  'CE': 'CE',
+  // Plumbing
+  'CPL': 'PLB', 'PL': 'PLB',
+  // Agriculture
+  'CGA': 'SAG', 'DGA': 'SAG', 'AGA': 'SAG', 'CAE': 'SAG', 'CSARD': 'SAG',
+  'AEX': 'AEX', 'AP': 'AP',
   // Supply Chain / Procurement
-  'supply chain': 'CSC', 'supply chain management': 'CSC', 'procurement': 'CSC',
-  // Food Science
-  'food science': 'CFS', 'food processing': 'CFS',
-  // Building / Civil
-  'civil engineering': 'CCE', 'building technology': 'CCE',
-  'build technology': 'CCE', 'building tech': 'CCE', 'building': 'CCE',
-  'plumbing': 'CPL',
+  'DSC': 'PM', 'CSC': 'PM',
   // Business Management
-  'business management': 'CBM', 'bussiness management': 'CBM',
+  'DBM': 'PM', 'CBM': 'PM',
+  // Fashion Design
+  'CFD': 'FD', 'DFD': 'FD', 'AFD': 'FD', 'FD': 'FD',
+  // Hair / Cosmetology
+  'HBT': 'COS', 'COS': 'COS',
+  // Food Science
+  'CFS': 'FDT', 'DFS': 'FDT',
+  // Social Work extra
+  'SW': 'SW',
 };
 
 // ---------------------------------------------------------------------------
@@ -170,25 +224,42 @@ async function main() {
   console.log(`\nCourses in DB (${dbCourses.length}):`,
     dbCourses.map(c => `${c.shortcode}=${c.name}`).join(' | '));
 
-  function matchCourse(raw) {
-    if (!raw) return null;
-    const s = String(raw).trim().toLowerCase();
-    // Alias map
-    const sc = COURSE_ALIASES[s];
-    if (sc) { const f = dbCourses.find(c => c.shortcode.toLowerCase() === sc.toLowerCase()); if (f) return f; }
-    // Direct shortcode
-    const d = dbCourses.find(c => c.shortcode.toLowerCase() === s);
-    if (d) return d;
-    // Partial name
-    const p = dbCourses.find(c => c.name.toLowerCase().includes(s) || s.includes(c.name.toLowerCase()));
-    if (p) return p;
-    // Fuzzy via alias keys
-    for (const [key, shortcode] of Object.entries(COURSE_ALIASES)) {
-      if (s.includes(key) || key.includes(s)) {
-        const f = dbCourses.find(c => c.shortcode.toLowerCase() === shortcode.toLowerCase());
-        if (f) return f;
+  function matchCourse(raw, admNo) {
+    // Trim leading/trailing spaces (some Excel cells have " Business Management")
+    const s = raw ? String(raw).trim().toLowerCase() : '';
+
+    if (s && s.length > 2 && !/^\d+$/.test(s)) { // skip pure numbers (phone in course col)
+      // 1. Alias map
+      const sc = COURSE_ALIASES[s];
+      if (sc) { const f = dbCourses.find(c => c.shortcode.toLowerCase() === sc.toLowerCase()); if (f) return f; }
+      // 2. Direct shortcode match
+      const d = dbCourses.find(c => c.shortcode.toLowerCase() === s);
+      if (d) return d;
+      // 3. Partial name match
+      const p = dbCourses.find(c => c.name.toLowerCase().includes(s) || s.includes(c.name.toLowerCase()));
+      if (p) return p;
+      // 4. Fuzzy alias key match
+      for (const [key, shortcode] of Object.entries(COURSE_ALIASES)) {
+        if (s.includes(key) || key.includes(s)) {
+          const f = dbCourses.find(c => c.shortcode.toLowerCase() === shortcode.toLowerCase());
+          if (f) return f;
+        }
       }
     }
+
+    // 5. ADM NO prefix inference (fallback when course col is null/empty/invalid)
+    if (admNo) {
+      const prefix = String(admNo).split('/')[0].trim().toUpperCase();
+      const infSc = ADM_PREFIX_MAP[prefix];
+      if (infSc) {
+        const f = dbCourses.find(c => c.shortcode.toLowerCase() === infSc.toLowerCase());
+        if (f) {
+          console.log(`  ℹ  Course inferred from ADM prefix "${prefix}" → ${f.shortcode} (${f.name})`);
+          return f;
+        }
+      }
+    }
+
     return null;
   }
 
@@ -307,7 +378,7 @@ async function main() {
       const kcpe_index                = kcpeRaw ? String(kcpeRaw).trim() : null;
       const cycleNum                  = parseCycle(cycleRaw);
       const matchedTerm               = findTermForCycle(cycleNum);
-      const courseMatch               = matchCourse(courseRaw);
+      const courseMatch               = matchCourse(courseRaw, admNo);
 
       // ── Resolve email: Excel value if valid, else filler ────────────────
       let email = fillerEmail(admNo);
