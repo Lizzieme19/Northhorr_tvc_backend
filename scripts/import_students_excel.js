@@ -31,7 +31,7 @@ const SINGLE_SHEET = (() => {
 
 const EXCEL_PATH      = path.join(__dirname, '..', 'ALL STUDENTS DATA.xlsx');
 const DEFAULT_PASSWORD = 'Northhorr@2026';
-const EMAIL_DOMAIN    = 'ntvc.ac.ke';
+const EMAIL_DOMAIN    = 'northhorrtvc.ac.ke';
 
 // ---------------------------------------------------------------------------
 // HELPERS
