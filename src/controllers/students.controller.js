@@ -484,43 +484,89 @@ const generateIdCard = async (req, res) => {
 // PATCH /api/students/me - Student update their own profile
 const updateMyProfile = async (req, res) => {
   try {
-    const { phone, address, id_number, emergency_contact_name, emergency_contact_phone,
-          profile_picture_url, id_copy_front_url, id_copy_back_url,
-          parent_id_copy_front_url, parent_id_copy_back_url } = req.body;
+    const {
+      // Contact / identity
+      phone, address, id_number, email,
+      // Personal
+      date_of_birth, gender, nationality, surname, other_names,
+      // Emergency
+      emergency_contact_name, emergency_contact_phone,
+      // Documents (URL fields)
+      profile_picture_url, id_copy_front_url, id_copy_back_url,
+      parent_id_copy_front_url, parent_id_copy_back_url,
+    } = req.body;
 
     const student = await prisma.student.findUnique({
       where: { user_id: req.user.id },
-      include: { application: true },
+      include: { application: true, user: true },
     });
 
     if (!student) return res.status(404).json({ error: 'Student profile not found' });
 
+    // ── Update User table (email) ─────────────────────────────────────────
+    if (email) {
+      const emailClean = String(email).trim().toLowerCase();
+      // Validate basic email format
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) {
+        return res.status(400).json({ error: 'Invalid email address format' });
+      }
+      // Check uniqueness — can't take another user's email
+      const taken = await prisma.user.findUnique({ where: { email: emailClean } });
+      if (taken && taken.id !== req.user.id) {
+        return res.status(409).json({ error: 'That email address is already in use' });
+      }
+      await prisma.user.update({
+        where: { id: req.user.id },
+        data: { email: emailClean },
+      });
+      // Keep application email in sync
+      if (student.application) {
+        await prisma.application.update({
+          where: { id: student.application.id },
+          data: { email: emailClean },
+        });
+      }
+    }
+
+    // ── Update Student table ─────────────────────────────────────────────
     const updated = await prisma.student.update({
       where: { user_id: req.user.id },
       data: {
-        ...(profile_picture_url && { profile_picture_url }),
-        ...(id_copy_front_url !== undefined && { id_copy_front_url }),
-        ...(id_copy_back_url !== undefined && { id_copy_back_url }),
+        ...(profile_picture_url     && { profile_picture_url }),
+        ...(id_copy_front_url      !== undefined && { id_copy_front_url }),
+        ...(id_copy_back_url       !== undefined && { id_copy_back_url }),
         ...(parent_id_copy_front_url !== undefined && { parent_id_copy_front_url }),
-        ...(parent_id_copy_back_url !== undefined && { parent_id_copy_back_url }),
+        ...(parent_id_copy_back_url  !== undefined && { parent_id_copy_back_url }),
       },
       include: studentIncludes,
     });
 
+    // ── Update Application table ─────────────────────────────────────────
     if (student.application) {
-      await prisma.application.update({
-        where: { id: student.application.id },
-        data: {
-          ...(phone && { phone }),
-          ...(address && { address }),
-          ...(id_number && { id_number }),
-          ...(emergency_contact_name && { emergency_person: emergency_contact_name }),
-          ...(emergency_contact_phone && { emergency_phone: emergency_contact_phone }),
-        },
-      });
+      const appData = {};
+      if (phone)                   appData.phone            = phone;
+      if (address)                 appData.address          = address;
+      if (id_number)               appData.id_number        = id_number;
+      if (gender)                  appData.gender           = gender;
+      if (nationality)             appData.nationality      = nationality;
+      if (surname)                 appData.surname          = surname;
+      if (other_names !== undefined) appData.other_names    = other_names;
+      if (emergency_contact_name)  appData.emergency_person = emergency_contact_name;
+      if (emergency_contact_phone) appData.emergency_phone  = emergency_contact_phone;
+      if (date_of_birth) {
+        const parsed = new Date(date_of_birth);
+        if (!isNaN(parsed.getTime())) appData.date_of_birth = parsed;
+      }
+
+      if (Object.keys(appData).length) {
+        await prisma.application.update({
+          where: { id: student.application.id },
+          data: appData,
+        });
+      }
     }
 
-    res.json(updated);
+    res.json({ message: 'Profile updated successfully', student: updated });
   } catch (err) {
     console.error('Profile update error:', err);
     res.status(500).json({ error: 'Server error' });
