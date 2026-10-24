@@ -22,7 +22,7 @@ const {
  *         name: category
  *         schema:
  *           type: string
- *           enum: [Prospectus, Forms, Timetables, Policies]
+ *           enum: [Prospectus, Forms, Timetables, Policies, Tenders]
  *         description: Filter by category
  *     responses:
  *       200:
@@ -98,7 +98,7 @@ router.get('/:id/download', downloadResource);
  *                 type: string
  *               category:
  *                 type: string
- *                 enum: [Prospectus, Forms, Timetables, Policies]
+ *                 enum: [Prospectus, Forms, Timetables, Policies, Tenders]
  *     responses:
  *       201:
  *         description: Resource created successfully
