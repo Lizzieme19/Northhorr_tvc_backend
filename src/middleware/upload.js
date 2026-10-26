@@ -9,12 +9,12 @@ const { v4: uuidv4 } = require('uuid');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  const allowed = ['.pdf', '.jpg', '.jpeg', '.png'];
+  const allowed = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx'];
   const ext = path.extname(file.originalname).toLowerCase();
   if (allowed.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error(`File type not allowed: ${ext}. Allowed: PDF, JPG, PNG`));
+    cb(new Error(`File type not allowed: ${ext}. Allowed: PDF, JPG, PNG, DOC, DOCX`));
   }
 };
 
@@ -32,6 +32,8 @@ const uploadToS3 = async (buffer, originalName, folder = 'uploads') => {
   const key = `${folder}/${uuidv4()}${ext}`;
   const contentType = ext === '.pdf' ? 'application/pdf'
     : ext === '.png' ? 'image/png'
+    : ext === '.doc' ? 'application/msword'
+    : ext === '.docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     : 'image/jpeg';
 
   try {
