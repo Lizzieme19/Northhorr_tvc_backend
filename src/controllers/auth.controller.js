@@ -266,11 +266,13 @@ const getMe = async (req, res) => {
 // GET /api/auth/users (Admin only)
 const getAllUsers = async (req, res) => {
   try {
-    const { role, page = 1, limit = 20, search } = req.query;
+    const { role, page = 1, limit = 20, search, exclude_students } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
     if (role) where.role = role;
+    // Filter before paginating, otherwise a page full of students hides every staff account
+    else if (exclude_students === 'true') where.role = { not: 'STUDENT' };
     if (search) {
       where.OR = [
         { email: { contains: search, mode: 'insensitive' } },
