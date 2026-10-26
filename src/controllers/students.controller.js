@@ -31,6 +31,13 @@ const studentIncludes = {
   fee_records: true,
 };
 
+// Registrars handle student affairs but not finance: strip payment data from what they receive
+const forRole = (student, role) => {
+  if (role !== 'REGISTRAR' || !student) return student;
+  const { fee_records, fee_adjustment, ...rest } = student;
+  return rest;
+};
+
 // GET /api/students
 const getStudents = async (req, res) => {
   try {
@@ -70,7 +77,7 @@ const getStudents = async (req, res) => {
     ]);
 
     res.json({
-      students,
+      students: students.map((s) => forRole(s, req.user.role)),
       pagination: {
         total,
         page: parseInt(page),
@@ -135,7 +142,7 @@ const getStudentById = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    res.json(student);
+    res.json(forRole(student, req.user.role));
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -213,7 +220,7 @@ const updateStudent = async (req, res) => {
       });
     }
 
-    res.json(updated);
+    res.json(forRole(updated, req.user.role));
   } catch (err) {
     console.error('Update student error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -295,7 +302,7 @@ const uploadStudentDocuments = async (req, res) => {
       },
     });
 
-    res.json({ message: 'Documents uploaded successfully', student: updated });
+    res.json({ message: 'Documents uploaded successfully', student: forRole(updated, req.user.role) });
   } catch (err) {
     console.error('Document upload error:', err);
     res.status(500).json({ error: 'Failed to upload documents' });

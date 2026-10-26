@@ -132,7 +132,7 @@ router.get('/my', authenticate, requireRoles('STUDENT'), requirePasswordChange, 
  *       200:
  *         description: List of applications
  */
-router.get('/', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), getApplications);
+router.get('/', authenticate, requireRoles('ADMIN', 'DEPT_HEAD', 'REGISTRAR'), getApplications);
 
 /**
  * @swagger
@@ -152,7 +152,7 @@ router.get('/', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), getApplication
  *       200:
  *         description: Application details
  */
-router.get('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), getApplicationById);
+router.get('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD', 'REGISTRAR'), getApplicationById);
 
 /**
  * @swagger
@@ -189,7 +189,7 @@ router.get('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), getApplicat
  *       200:
  *         description: Application status updated
  */
-router.patch('/:id/status', authenticate, requireRoles('ADMIN'), updateApplicationStatus);
+router.patch('/:id/status', authenticate, requireRoles('ADMIN', 'REGISTRAR'), updateApplicationStatus);
 
 /**
  * @swagger
@@ -313,7 +313,7 @@ router.patch('/:id/status', authenticate, requireRoles('ADMIN'), updateApplicati
  *       200:
  *         description: Application updated successfully
  */
-router.patch('/:id/documents', authenticate, requireRoles('ADMIN'), docUpload, updateApplicationDocuments);
+router.patch('/:id/documents', authenticate, requireRoles('ADMIN', 'REGISTRAR'), docUpload, updateApplicationDocuments);
 
 /**
  * @swagger
@@ -340,7 +340,7 @@ router.patch('/:id/documents', authenticate, requireRoles('ADMIN'), docUpload, u
 router.post(
   '/import/kuccps',
   authenticate,
-  requireRoles('ADMIN'),
+  requireRoles('ADMIN', 'REGISTRAR'),
   upload.single('csv_file'),
   importKuccps
 );

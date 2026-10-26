@@ -12,4 +12,14 @@ const requireRoles = (...roles) => {
   };
 };
 
-module.exports = { requireRoles };
+// Blocks the listed roles from an otherwise open route (e.g. keep Registrars out of fee data)
+const denyRoles = (...roles) => {
+  return (req, res, next) => {
+    if (req.user && roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    next();
+  };
+};
+
+module.exports = { requireRoles, denyRoles };

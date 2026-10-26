@@ -9,6 +9,11 @@ const {
   getFeeSummary,
   getStudentBalance,
 } = require('../controllers/finance.controller');
+const {
+  getReportFilters,
+  exportFeesReport,
+  exportStudentsReport,
+} = require('../controllers/reports.controller');
 
 /**
  * @swagger
@@ -108,5 +113,65 @@ router.patch('/students/:id/fees', authenticate, requireRoles('ADMIN', 'FINANCE'
  *         description: Student balance information
  */
 router.get('/students/:id/balance', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentBalance);
+
+/**
+ * @swagger
+ * /api/finance/reports/filters:
+ *   get:
+ *     summary: Dropdown values for the report filters (Admin/Finance only)
+ *     tags: [Finance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Levels, years, intakes, departments, courses, terms and fee types
+ */
+router.get('/reports/filters', authenticate, requireRoles('ADMIN', 'FINANCE'), getReportFilters);
+
+/**
+ * @swagger
+ * /api/finance/reports/fees/export:
+ *   get:
+ *     summary: Download the student fees report as Excel (Admin/Finance only)
+ *     description: Sheets - Summary, Fee Balances, Payments, Paid by Fee Type
+ *     tags: [Finance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: query, name: department_id, schema: { type: string } }
+ *       - { in: query, name: course_id, schema: { type: string } }
+ *       - { in: query, name: level, schema: { type: string } }
+ *       - { in: query, name: intake, schema: { type: string, enum: [JANUARY, MAY, SEPTEMBER] } }
+ *       - { in: query, name: year, schema: { type: integer } }
+ *       - { in: query, name: status, description: Student status, schema: { type: string } }
+ *       - { in: query, name: gender, schema: { type: string } }
+ *       - { in: query, name: helb, schema: { type: string, enum: ['true', 'false'] } }
+ *       - { in: query, name: term_id, schema: { type: string } }
+ *       - { in: query, name: fee_status, schema: { type: string, enum: [PENDING, PARTIAL, PAID, OVERDUE] } }
+ *       - { in: query, name: outstanding_only, schema: { type: string, enum: ['true'] } }
+ *       - { in: query, name: fee_type_id, schema: { type: string } }
+ *       - { in: query, name: date_from, description: Payments on/after (YYYY-MM-DD), schema: { type: string } }
+ *       - { in: query, name: date_to, description: Payments on/before (YYYY-MM-DD), schema: { type: string } }
+ *       - { in: query, name: search, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Excel workbook (.xlsx)
+ */
+router.get('/reports/fees/export', authenticate, requireRoles('ADMIN', 'FINANCE'), exportFeesReport);
+
+/**
+ * @swagger
+ * /api/finance/reports/students/export:
+ *   get:
+ *     summary: Download the full student details report as Excel (Admin only)
+ *     description: Sheets - Summary, Students. Accepts the same filters as the fees report (payment-only filters are ignored).
+ *     tags: [Finance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Excel workbook (.xlsx)
+ */
+router.get('/reports/students/export', authenticate, requireRoles('ADMIN'), exportStudentsReport);
 
 module.exports = router;

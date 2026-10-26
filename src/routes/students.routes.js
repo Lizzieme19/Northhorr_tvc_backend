@@ -47,7 +47,7 @@ const {
  *       200:
  *         description: List of students
  */
-router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), getStudents);
+router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD', 'REGISTRAR'), getStudents);
 
 /**
  * @swagger
@@ -61,7 +61,7 @@ router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), get
  *       200:
  *         description: Student statistics
  */
-router.get('/stats', authenticate, requireRoles('ADMIN'), getStudentStats);
+router.get('/stats', authenticate, requireRoles('ADMIN', 'REGISTRAR'), getStudentStats);
 
 /**
  * @swagger
@@ -252,7 +252,7 @@ router.get('/:id', authenticate, getStudentById);
  *       403:
  *         description: Access denied (Dept Head can only update students in their department)
  */
-router.patch('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), updateStudent);
+router.patch('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD', 'REGISTRAR'), updateStudent);
 
 /**
  * @swagger
@@ -293,7 +293,7 @@ router.patch('/:id', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), updateStu
  *       403:
  *         description: Access denied
  */
-router.post('/:id/documents', authenticate, requireRoles('ADMIN'), upload.fields([
+router.post('/:id/documents', authenticate, requireRoles('ADMIN', 'REGISTRAR'), upload.fields([
   { name: 'id_copy_front', maxCount: 1 },
   { name: 'id_copy_back', maxCount: 1 },
   { name: 'parent_id_copy_front', maxCount: 1 },
@@ -415,7 +415,7 @@ router.post('/me/enroll/:termId', authenticate, requireRoles('STUDENT'), require
  *       200:
  *         description: Term assigned successfully
  */
-router.post('/:id/term/:termId', authenticate, requireRoles('ADMIN'), assignStudentTerm);
+router.post('/:id/term/:termId', authenticate, requireRoles('ADMIN', 'REGISTRAR'), assignStudentTerm);
 
 /**
  * @swagger
@@ -442,7 +442,7 @@ router.post('/:id/term/:termId', authenticate, requireRoles('ADMIN'), assignStud
  *       200:
  *         description: Bulk term assignment completed
  */
-router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), bulkAssignTerm);
+router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD', 'REGISTRAR'), bulkAssignTerm);
 
 /**
  * @swagger
@@ -466,7 +466,7 @@ router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 
  *       200:
  *         description: CSV import results
  */
-router.post('/import/csv', authenticate, requireRoles('ADMIN'), upload.single('csv_file'), importStudentsCsv);
+router.post('/import/csv', authenticate, requireRoles('ADMIN', 'REGISTRAR'), upload.single('csv_file'), importStudentsCsv);
 
 /**
  * @swagger
@@ -480,7 +480,7 @@ router.post('/import/csv', authenticate, requireRoles('ADMIN'), upload.single('c
  *       200:
  *         description: Groups of duplicate students
  */
-router.get('/duplicates', authenticate, requireRoles('ADMIN'), getDuplicates);
+router.get('/duplicates', authenticate, requireRoles('ADMIN', 'REGISTRAR'), getDuplicates);
 
 /**
  * @swagger

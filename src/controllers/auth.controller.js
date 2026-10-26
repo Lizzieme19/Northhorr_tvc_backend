@@ -168,7 +168,7 @@ const changePassword = async (req, res) => {
 const createStaffAccount = async (req, res) => {
   try {
     const { email, password, role, department_id, first_name, last_name, phone } = req.body;
-    const allowedRoles = ['ADMIN', 'DEPT_HEAD', 'FINANCE', 'STAFF', 'PROCUREMENT', 'HR'];
+    const allowedRoles = ['ADMIN', 'DEPT_HEAD', 'FINANCE', 'STAFF', 'PROCUREMENT', 'HR', 'REGISTRAR'];
 
     if (!email || !password || !role) {
       return res.status(400).json({ error: 'Email, password, and role are required' });

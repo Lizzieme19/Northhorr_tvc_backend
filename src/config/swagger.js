@@ -42,7 +42,7 @@ const options = {
             email: { type: 'string', format: 'email' },
             role: { 
               type: 'string', 
-              enum: ['STUDENT', 'ADMIN', 'DEPT_HEAD', 'FINANCE', 'STAFF', 'PROCUREMENT', 'HR'] 
+              enum: ['STUDENT', 'ADMIN', 'DEPT_HEAD', 'FINANCE', 'STAFF', 'PROCUREMENT', 'HR', 'REGISTRAR'] 
             },
             mustChangePassword: { type: 'boolean' },
             studentId: { type: 'string' },

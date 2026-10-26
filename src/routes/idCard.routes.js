@@ -56,7 +56,7 @@ router.get('/students/me/id-card', authenticate, requireRoles('STUDENT'), getMyI
  *       404:
  *         description: Student not found
  */
-router.get('/students/:studentId/id-card', authenticate, requireRoles('ADMIN', 'FINANCE'), getStudentIDCard);
+router.get('/students/:studentId/id-card', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), getStudentIDCard);
 
 /**
  * @swagger
@@ -91,6 +91,6 @@ router.get('/students/:studentId/id-card', authenticate, requireRoles('ADMIN', '
  *       400:
  *         description: Invalid expiry date
  */
-router.patch('/students/:studentId/id-card/expiry', authenticate, requireRoles('ADMIN', 'FINANCE'), updateIDCardExpiry);
+router.patch('/students/:studentId/id-card/expiry', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), updateIDCardExpiry);
 
 module.exports = router;

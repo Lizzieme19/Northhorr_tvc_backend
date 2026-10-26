@@ -15,7 +15,7 @@ const {
   getBillingReport,
 } = require('../controllers/fee.controller');
 const { authenticate } = require('../middleware/auth');
-const { requireRoles } = require('../middleware/roles');
+const { requireRoles, denyRoles } = require('../middleware/roles');
 
 /**
  * @swagger
@@ -149,7 +149,7 @@ router.post('/bulk-record-payment', authenticate, requireRoles('ADMIN', 'FINANCE
  *       200:
  *         description: Fee summary retrieved
  */
-router.get('/students/:studentId/summary', authenticate, getStudentFeeSummary);
+router.get('/students/:studentId/summary', authenticate, denyRoles('REGISTRAR'), getStudentFeeSummary);
 
 /**
  * @swagger
@@ -184,7 +184,7 @@ router.get('/students/:studentId/summary', authenticate, getStudentFeeSummary);
  *       200:
  *         description: Student promoted successfully
  */
-router.post('/students/:studentId/promote', authenticate, requireRoles('ADMIN', 'DEPT_HEAD'), promoteStudent);
+router.post('/students/:studentId/promote', authenticate, requireRoles('ADMIN', 'DEPT_HEAD', 'REGISTRAR'), promoteStudent);
 
 /**
  * @swagger

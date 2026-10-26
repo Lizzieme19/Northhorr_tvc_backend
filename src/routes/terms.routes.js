@@ -35,7 +35,7 @@ const {
  *       200:
  *         description: List of terms
  */
-router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'STUDENT'), getAllTerms);
+router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'STUDENT', 'REGISTRAR'), getAllTerms);
 
 /**
  * @swagger
@@ -55,7 +55,7 @@ router.get('/', authenticate, requireRoles('ADMIN', 'FINANCE', 'STUDENT'), getAl
  *       200:
  *         description: Term details
  */
-router.get('/:id', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD'), getTermById);
+router.get('/:id', authenticate, requireRoles('ADMIN', 'FINANCE', 'DEPT_HEAD', 'REGISTRAR'), getTermById);
 
 /**
  * @swagger
@@ -182,7 +182,7 @@ router.delete('/:id', authenticate, requireRoles('ADMIN'), deleteTerm);
  *       200:
  *         description: Student enrolled
  */
-router.post('/:termId/enroll/:studentId', authenticate, requireRoles('ADMIN'), enrollStudentInTerm);
+router.post('/:termId/enroll/:studentId', authenticate, requireRoles('ADMIN', 'REGISTRAR'), enrollStudentInTerm);
 
 /**
  * @swagger
@@ -207,6 +207,6 @@ router.post('/:termId/enroll/:studentId', authenticate, requireRoles('ADMIN'), e
  *       200:
  *         description: Student unenrolled
  */
-router.delete('/:termId/enroll/:studentId', authenticate, requireRoles('ADMIN'), unenrollStudentFromTerm);
+router.delete('/:termId/enroll/:studentId', authenticate, requireRoles('ADMIN', 'REGISTRAR'), unenrollStudentFromTerm);
 
 module.exports = router;

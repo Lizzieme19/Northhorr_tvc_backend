@@ -111,7 +111,7 @@ router.get('/:slug/courses',  getCoursesByDepartment);
  *       201:
  *         description: Department created
  */
-router.post('/', authenticate, requireRoles('ADMIN'), createDepartment);
+router.post('/', authenticate, requireRoles('ADMIN', 'REGISTRAR'), createDepartment);
 
 /**
  * @swagger
@@ -137,7 +137,7 @@ router.post('/', authenticate, requireRoles('ADMIN'), createDepartment);
  *       200:
  *         description: Department updated
  */
-router.put('/:id', authenticate, requireRoles('ADMIN'), updateDepartment);
+router.put('/:id', authenticate, requireRoles('ADMIN', 'REGISTRAR'), updateDepartment);
 
 /**
  * @swagger

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
-const { requireRoles } = require('../middleware/roles');
+const { requireRoles, denyRoles } = require('../middleware/roles');
 const {
   admitStudentToTerm,
   getStudentProgression,
@@ -42,7 +42,7 @@ const {
  *       400:
  *         description: Invalid input
  */
-router.post('/admit', authenticate, requireRoles('ADMIN'), admitStudentToTerm);
+router.post('/admit', authenticate, requireRoles('ADMIN', 'REGISTRAR'), admitStudentToTerm);
 
 /**
  * @swagger
@@ -63,7 +63,7 @@ router.post('/admit', authenticate, requireRoles('ADMIN'), admitStudentToTerm);
  *         description: Progression history
  */
 // IMPORTANT: /admin/all must be defined BEFORE /:student_id to avoid routing conflict
-router.get('/admin/all', authenticate, requireRoles('ADMIN'), getAllProgressions);
+router.get('/admin/all', authenticate, requireRoles('ADMIN', 'REGISTRAR'), getAllProgressions);
 
 router.get('/:student_id', authenticate, getStudentProgression);
 
@@ -85,7 +85,7 @@ router.get('/:student_id', authenticate, getStudentProgression);
  *       200:
  *         description: Term balances
  */
-router.get('/:student_id/balances', authenticate, getStudentBalances);
+router.get('/:student_id/balances', authenticate, denyRoles('REGISTRAR'), getStudentBalances);
 
 /**
  * @swagger
@@ -113,6 +113,6 @@ router.get('/:student_id/balances', authenticate, getStudentBalances);
  *       200:
  *         description: Progression updated
  */
-router.patch('/:id/notes', authenticate, requireRoles('ADMIN'), updateProgressionNotes);
+router.patch('/:id/notes', authenticate, requireRoles('ADMIN', 'REGISTRAR'), updateProgressionNotes);
 
 module.exports = router;

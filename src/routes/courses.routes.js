@@ -71,7 +71,7 @@ router.get('/', authenticate, getCourses);
  *       201:
  *         description: Course created
  */
-router.post('/', authenticate, requireRoles('ADMIN'), createCourse);
+router.post('/', authenticate, requireRoles('ADMIN', 'REGISTRAR'), createCourse);
 
 /**
  * @swagger
@@ -97,7 +97,7 @@ router.post('/', authenticate, requireRoles('ADMIN'), createCourse);
  *       200:
  *         description: Course updated
  */
-router.put('/:id', authenticate, requireRoles('ADMIN'), updateCourse);
+router.put('/:id', authenticate, requireRoles('ADMIN', 'REGISTRAR'), updateCourse);
 
 /**
  * @swagger
