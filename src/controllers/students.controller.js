@@ -507,11 +507,15 @@ const updateMyProfile = async (req, res) => {
 
     if (!student) return res.status(404).json({ error: 'Student profile not found' });
 
-    // ── 14-day editing window ─────────────────────────────────────────────
-    const WINDOW_DAYS = 14;
-    const createdAt = new Date(student.created_at);
-    const windowEnd = new Date(createdAt.getTime() + WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    const withinWindow = new Date() <= windowEnd;
+    // ── Editing deadline — read from DB (admin can change without redeploy) ─
+    const deadlineSetting = await prisma.systemSetting.findUnique({
+      where: { key: 'student_edit_deadline' },
+    });
+    // Fallback: 30 Oct 2026 23:59 EAT if setting missing
+    const deadlineISO = deadlineSetting?.value || '2026-10-30T20:59:59.000Z';
+    const EDIT_DEADLINE = new Date(deadlineISO);
+    const withinWindow = new Date() <= EDIT_DEADLINE;
+    const windowEnd = EDIT_DEADLINE;
 
     // Detect if any restricted (personal/parent) fields were sent
     const restrictedRequested = [
@@ -524,10 +528,9 @@ const updateMyProfile = async (req, res) => {
     ].some(v => v !== undefined && v !== null) || other_names !== undefined;
 
     if (restrictedRequested && !withinWindow) {
-      const daysLocked = Math.floor((new Date() - windowEnd) / (1000 * 60 * 60 * 24));
       return res.status(403).json({
-        error: 'Personal information editing period has expired.',
-        detail: `You had ${WINDOW_DAYS} days from enrolment to update your personal and parent details. That window closed ${daysLocked} day(s) ago. Only your profile photo and email can still be changed. Contact the registrar\'s office for corrections.`,
+        error: 'Personal information editing deadline has passed.',
+        detail: `The deadline to update personal and parent details was Friday, 30 October 2026. Only your profile photo and email can still be changed. Contact the registrar\'s office for any corrections.`,
         windowExpired: true,
         windowEnd: windowEnd.toISOString(),
       });

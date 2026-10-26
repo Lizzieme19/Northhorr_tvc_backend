@@ -962,3 +962,9 @@ model DocumentTemplate {
   created_at      DateTime     @default(now())
   updated_at      DateTime     @updatedAt
 }
+
+model SystemSetting {
+  key        String   @id
+  value      String
+  updated_at DateTime @updatedAt
+}
