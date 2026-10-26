@@ -494,6 +494,10 @@ const updateMyProfile = async (req, res) => {
       // Documents (URL fields)
       profile_picture_url, id_copy_front_url, id_copy_back_url,
       parent_id_copy_front_url, parent_id_copy_back_url,
+      // Parent / Guardian
+      father_name, father_phone, father_email, father_occupation, father_present,
+      mother_name, mother_phone, mother_email, mother_occupation, mother_present,
+      parent_names, parent_phone, parent_email, parent_relationship,
     } = req.body;
 
     const student = await prisma.student.findUnique({
@@ -502,6 +506,32 @@ const updateMyProfile = async (req, res) => {
     });
 
     if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    // ── 14-day editing window ─────────────────────────────────────────────
+    const WINDOW_DAYS = 14;
+    const createdAt = new Date(student.created_at);
+    const windowEnd = new Date(createdAt.getTime() + WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const withinWindow = new Date() <= windowEnd;
+
+    // Detect if any restricted (personal/parent) fields were sent
+    const restrictedRequested = [
+      phone, address, id_number, date_of_birth, gender, nationality, surname,
+      emergency_contact_name, emergency_contact_phone,
+      id_copy_front_url, id_copy_back_url, parent_id_copy_front_url, parent_id_copy_back_url,
+      father_name, father_phone, father_email, father_occupation, father_present,
+      mother_name, mother_phone, mother_email, mother_occupation, mother_present,
+      parent_names, parent_phone, parent_email, parent_relationship,
+    ].some(v => v !== undefined && v !== null) || other_names !== undefined;
+
+    if (restrictedRequested && !withinWindow) {
+      const daysLocked = Math.floor((new Date() - windowEnd) / (1000 * 60 * 60 * 24));
+      return res.status(403).json({
+        error: 'Personal information editing period has expired.',
+        detail: `You had ${WINDOW_DAYS} days from enrolment to update your personal and parent details. That window closed ${daysLocked} day(s) ago. Only your profile photo and email can still be changed. Contact the registrar\'s office for corrections.`,
+        windowExpired: true,
+        windowEnd: windowEnd.toISOString(),
+      });
+    }
 
     // ── Update User table (email) ─────────────────────────────────────────
     if (email) {
@@ -532,31 +562,46 @@ const updateMyProfile = async (req, res) => {
     const updated = await prisma.student.update({
       where: { user_id: req.user.id },
       data: {
-        ...(profile_picture_url     && { profile_picture_url }),
-        ...(id_copy_front_url      !== undefined && { id_copy_front_url }),
-        ...(id_copy_back_url       !== undefined && { id_copy_back_url }),
-        ...(parent_id_copy_front_url !== undefined && { parent_id_copy_front_url }),
-        ...(parent_id_copy_back_url  !== undefined && { parent_id_copy_back_url }),
+        ...(profile_picture_url && { profile_picture_url }),
+        ...(withinWindow && id_copy_front_url      !== undefined && { id_copy_front_url }),
+        ...(withinWindow && id_copy_back_url       !== undefined && { id_copy_back_url }),
+        ...(withinWindow && parent_id_copy_front_url !== undefined && { parent_id_copy_front_url }),
+        ...(withinWindow && parent_id_copy_back_url  !== undefined && { parent_id_copy_back_url }),
       },
       include: studentIncludes,
     });
 
-    // ── Update Application table ─────────────────────────────────────────
-    if (student.application) {
+    // ── Update Application table (personal + parent – window-gated) ───────
+    if (withinWindow && student.application) {
       const appData = {};
-      if (phone)                   appData.phone            = phone;
-      if (address)                 appData.address          = address;
-      if (id_number)               appData.id_number        = id_number;
-      if (gender)                  appData.gender           = gender;
-      if (nationality)             appData.nationality      = nationality;
-      if (surname)                 appData.surname          = surname;
-      if (other_names !== undefined) appData.other_names    = other_names;
-      if (emergency_contact_name)  appData.emergency_person = emergency_contact_name;
-      if (emergency_contact_phone) appData.emergency_phone  = emergency_contact_phone;
+      if (phone)                    appData.phone             = phone;
+      if (address)                  appData.address           = address;
+      if (id_number)                appData.id_number         = id_number;
+      if (gender)                   appData.gender            = gender;
+      if (nationality)              appData.nationality       = nationality;
+      if (surname)                  appData.surname           = surname;
+      if (other_names !== undefined) appData.other_names      = other_names;
+      if (emergency_contact_name)   appData.emergency_person  = emergency_contact_name;
+      if (emergency_contact_phone)  appData.emergency_phone   = emergency_contact_phone;
       if (date_of_birth) {
         const parsed = new Date(date_of_birth);
         if (!isNaN(parsed.getTime())) appData.date_of_birth = parsed;
       }
+      // Parent / Guardian fields
+      if (father_name       !== undefined) appData.father_name        = father_name;
+      if (father_phone      !== undefined) appData.father_phone       = father_phone;
+      if (father_email      !== undefined) appData.father_email       = father_email;
+      if (father_occupation !== undefined) appData.father_occupation  = father_occupation;
+      if (father_present    !== undefined) appData.father_present     = father_present;
+      if (mother_name       !== undefined) appData.mother_name        = mother_name;
+      if (mother_phone      !== undefined) appData.mother_phone       = mother_phone;
+      if (mother_email      !== undefined) appData.mother_email       = mother_email;
+      if (mother_occupation !== undefined) appData.mother_occupation  = mother_occupation;
+      if (mother_present    !== undefined) appData.mother_present     = mother_present;
+      if (parent_names      !== undefined) appData.parent_names       = parent_names;
+      if (parent_phone      !== undefined) appData.parent_phone       = parent_phone;
+      if (parent_email      !== undefined) appData.parent_email       = parent_email;
+      if (parent_relationship !== undefined) appData.parent_relationship = parent_relationship;
 
       if (Object.keys(appData).length) {
         await prisma.application.update({
@@ -566,7 +611,12 @@ const updateMyProfile = async (req, res) => {
       }
     }
 
-    res.json({ message: 'Profile updated successfully', student: updated });
+    res.json({
+      message: 'Profile updated successfully',
+      student: updated,
+      withinWindow,
+      windowEnd: windowEnd.toISOString(),
+    });
   } catch (err) {
     console.error('Profile update error:', err);
     res.status(500).json({ error: 'Server error' });
