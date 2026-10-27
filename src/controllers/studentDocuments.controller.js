@@ -138,6 +138,8 @@ const downloadStudentDocument = async (req, res) => {
 
     const buffer = await readStoredFile(issued);
     res.setHeader('Content-Type', 'application/pdf');
+    // Private per-student file: no caching, so the browser never answers with an empty 304
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.setHeader('Content-Disposition', `attachment; filename="${downloadFileName(student, slug)}"`);
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.send(buffer);
