@@ -122,6 +122,7 @@ model User {
   dept_head_of      Department? @relation("DeptHead")
   reviewed_apps     Application[] @relation("ReviewedBy")
   generated_letters AdmissionLetter[] @relation("GeneratedBy")
+  generated_documents StudentDocument[] @relation("StudentDocumentGeneratedBy")
   fee_records       FeeRecord[] @relation("ReceivedBy")
   refresh_tokens    RefreshToken[]
   staff             Staff?
@@ -322,6 +323,7 @@ model Student {
   course          Course        @relation(fields: [course_id], references: [id])
   department      Department    @relation(fields: [department_id], references: [id])
   admission_letter AdmissionLetter?
+  documents       StudentDocument[]
   fee_records     FeeRecord[]
   student_balances StudentBalance[]
   current_term    Term?         @relation("StudentCurrentTerm", fields: [current_term_id], references: [id])
@@ -338,6 +340,24 @@ model AdmissionLetter {
 
   student         Student  @relation(fields: [student_id], references: [id])
   generator       User     @relation("GeneratedBy", fields: [generated_by], references: [id])
+}
+
+// A document the college has issued to a student (Admission Letter, Letter of Acceptance, ...).
+// Students can only download a document once a row exists here. The PDF is a saved copy built
+// from the document template at the time of issue; regenerating replaces it.
+model StudentDocument {
+  id            String       @id @default(uuid())
+  student_id    String
+  document_type DocumentType
+  file_key      String       // storage key (or local path when S3 is unreachable)
+  file_url      String
+  generated_by  String
+  generated_at  DateTime     @default(now())
+
+  student       Student      @relation(fields: [student_id], references: [id])
+  generator     User         @relation("StudentDocumentGeneratedBy", fields: [generated_by], references: [id])
+
+  @@unique([student_id, document_type])
 }
 
 model FeeRecord {

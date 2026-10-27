@@ -5,6 +5,12 @@ const STUDENT_STATUSES = ['ACTIVE', 'DEFERRED', 'GRADUATED', 'WITHDRAWN', 'ATTAC
 const INTAKES = ['JANUARY', 'MAY', 'SEPTEMBER'];
 const BALANCE_STATUSES = ['PENDING', 'PARTIAL', 'PAID', 'OVERDUE'];
 
+// Columns of the student details report that expose fee data (left out for Registrars)
+const FINANCE_COLUMNS = [
+  'admission_fee_paid', 'kuccps_fee_paid', 'student_id_fee_paid', 'tuition_fee_paid', 'full_year_paid',
+  'fee_adjustment', 'term_total', 'term_paid', 'term_balance', 'fee_status', 'overall_balance',
+];
+
 // ── Query helpers ────────────────────────────────────────────────────────────
 
 const parseDate = (value, endOfDay = false) => {
@@ -183,8 +189,8 @@ const getReportFilters = async (req, res) => {
       years: years.map((y) => y.year),
       intakes: INTAKES,
       student_statuses: STUDENT_STATUSES,
-      fee_statuses: BALANCE_STATUSES,
-      departments, courses, terms, fee_types: feeTypes,
+      fee_statuses: req.user?.role === 'REGISTRAR' ? [] : BALANCE_STATUSES,
+      departments, courses, terms, fee_types: req.user?.role === 'REGISTRAR' ? [] : feeTypes,
     });
   } catch (err) {
     console.error('Report filters error:', err);
@@ -433,7 +439,9 @@ const exportFeesReport = async (req, res) => {
 // Workbook: Summary | Students (full details, with current fee position)
 const exportStudentsReport = async (req, res) => {
   try {
-    const q = req.query;
+    // Registrars get the same report without any fee data, and fee-based filters are ignored
+    const hideFinance = req.user?.role === 'REGISTRAR';
+    const q = hideFinance ? { ...req.query, fee_status: undefined, outstanding_only: undefined } : req.query;
     const where = buildStudentWhere(q);
 
     // Narrow by the student's balance in a term / fee status when asked
@@ -585,7 +593,7 @@ const exportStudentsReport = async (req, res) => {
       { label: 'Tuition Fee Paid', key: 'tuition_fee_paid', width: 16 },
       { label: 'Full Year Paid', key: 'full_year_paid', width: 14 },
       { label: 'Fee Adjustment (KES)', key: 'fee_adjustment', width: 19, type: 'money' },
-      { label: 'Fee Term', key: 'fee_term', width: 28 },
+      { label: hideFinance ? 'Current Term' : 'Fee Term', key: 'fee_term', width: 28 },
       { label: 'Term Total Fees (KES)', key: 'term_total', width: 20, type: 'money' },
       { label: 'Term Paid (KES)', key: 'term_paid', width: 16, type: 'money' },
       { label: 'Term Balance (KES)', key: 'term_balance', width: 18, type: 'money' },
@@ -594,7 +602,7 @@ const exportStudentsReport = async (req, res) => {
       { label: 'ID Card Expiry', key: 'id_card_expiry', width: 14, type: 'date' },
       { label: 'Account Active', key: 'account_active', width: 14 },
       { label: 'Date Registered', key: 'registered', width: 18, type: 'datetime' },
-    ];
+    ].filter((c) => !hideFinance || !FINANCE_COLUMNS.includes(c.key));
 
     const countBy = (keyFn) => {
       const m = new Map();
@@ -612,12 +620,14 @@ const exportStudentsReport = async (req, res) => {
       [
         {
           title: 'Totals',
-          rows: [
-            ['Students', rows.length],
-            ['Term fees billed (KES)', totalFees],
-            ['Term fees paid (KES)', totalPaid],
-            ['Term balance outstanding (KES)', totalBal],
-          ],
+          rows: hideFinance
+            ? [['Students', rows.length]]
+            : [
+              ['Students', rows.length],
+              ['Term fees billed (KES)', totalFees],
+              ['Term fees paid (KES)', totalPaid],
+              ['Term balance outstanding (KES)', totalBal],
+            ],
           money: [1],
         },
         { title: 'By department', header: ['', 'Students'], rows: countBy((r) => r.department) },
@@ -625,7 +635,7 @@ const exportStudentsReport = async (req, res) => {
         { title: 'By level', header: ['', 'Students'], rows: countBy((r) => r.level) },
         { title: 'By student status', header: ['', 'Students'], rows: countBy((r) => r.status) },
         { title: 'By gender', header: ['', 'Students'], rows: countBy((r) => r.gender) },
-        { title: 'By fee status', header: ['', 'Students'], rows: countBy((r) => r.fee_status) },
+        ...(hideFinance ? [] : [{ title: 'By fee status', header: ['', 'Students'], rows: countBy((r) => r.fee_status) }]),
       ]
     );
 

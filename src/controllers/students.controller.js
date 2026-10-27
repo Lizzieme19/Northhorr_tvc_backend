@@ -27,7 +27,8 @@ const studentIncludes = {
       emergency_person: true, emergency_phone: true,
     },
   },
-  admission_letter: { select: { id: true, generated_at: true, letter_url: true } },
+  admission_letter: { select: { id: true, generated_at: true } },
+  documents: { select: { document_type: true, generated_at: true } },
   fee_records: true,
 };
 
@@ -1154,6 +1155,7 @@ const deleteStudent = async (req, res) => {
     await prisma.feeRecord.deleteMany({ where: { student_id: id } });
     await prisma.studentProgression.deleteMany({ where: { student_id: id } });
     await prisma.admissionLetter.deleteMany({ where: { student_id: id } });
+    await prisma.studentDocument.deleteMany({ where: { student_id: id } });
 
     if (student.user?.id) {
       await prisma.refreshToken.deleteMany({ where: { user_id: student.user.id } });

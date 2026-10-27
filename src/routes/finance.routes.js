@@ -118,7 +118,7 @@ router.get('/students/:id/balance', authenticate, requireRoles('ADMIN', 'FINANCE
  * @swagger
  * /api/finance/reports/filters:
  *   get:
- *     summary: Dropdown values for the report filters (Admin/Finance only)
+ *     summary: Dropdown values for the report filters (Admin/Finance/Registrar)
  *     tags: [Finance]
  *     security:
  *       - bearerAuth: []
@@ -126,7 +126,7 @@ router.get('/students/:id/balance', authenticate, requireRoles('ADMIN', 'FINANCE
  *       200:
  *         description: Levels, years, intakes, departments, courses, terms and fee types
  */
-router.get('/reports/filters', authenticate, requireRoles('ADMIN', 'FINANCE'), getReportFilters);
+router.get('/reports/filters', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), getReportFilters);
 
 /**
  * @swagger
@@ -163,7 +163,7 @@ router.get('/reports/fees/export', authenticate, requireRoles('ADMIN', 'FINANCE'
  * @swagger
  * /api/finance/reports/students/export:
  *   get:
- *     summary: Download the full student details report as Excel (Admin only)
+ *     summary: Download the full student details report as Excel (Admin; Registrar gets it without fee data)
  *     description: Sheets - Summary, Students. Accepts the same filters as the fees report (payment-only filters are ignored).
  *     tags: [Finance]
  *     security:
@@ -172,6 +172,6 @@ router.get('/reports/fees/export', authenticate, requireRoles('ADMIN', 'FINANCE'
  *       200:
  *         description: Excel workbook (.xlsx)
  */
-router.get('/reports/students/export', authenticate, requireRoles('ADMIN'), exportStudentsReport);
+router.get('/reports/students/export', authenticate, requireRoles('ADMIN', 'REGISTRAR'), exportStudentsReport);
 
 module.exports = router;
