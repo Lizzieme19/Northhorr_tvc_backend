@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
+const { summarizeBalances } = require('./feeTotals');
 
 /**
  * Map intake month to term number
@@ -223,20 +224,17 @@ async function canEnrollInTerm(studentId, termId) {
     return { canEnroll: false, reason: 'Term is not active' };
   }
 
-  // Check if previous term fees are paid (optional - can be relaxed)
-  const previousBalances = await prisma.studentBalance.findMany({
-    where: {
-      student_id: studentId,
-      status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }
-    },
-    include: { term: true }
+  // Check the student owes nothing overall. Older term rows keep their own balance when debt is
+  // carried forward, so judge by billed minus paid instead of any older row still showing a balance.
+  const allBalances = await prisma.studentBalance.findMany({
+    where: { student_id: studentId },
   });
+  const { outstanding } = summarizeBalances(allBalances);
 
-  if (previousBalances.length > 0) {
-    const unpaidTerms = previousBalances.map(b => b.term.name).join(', ');
-    return { 
-      canEnroll: false, 
-      reason: `Previous term fees not paid: ${unpaidTerms}` 
+  if (outstanding > 0.01) {
+    return {
+      canEnroll: false,
+      reason: `Outstanding fee balance of KES ${outstanding.toLocaleString()} must be cleared first`,
     };
   }
 

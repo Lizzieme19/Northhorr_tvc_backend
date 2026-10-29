@@ -4,7 +4,8 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const { v4: uuidv4 } = require('uuid');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
-const { sendAdmissionConfirmation } = require('../services/emailService');
+const { sendAdmissionConfirmation, sendNotification } = require('../services/emailService');
+const { progressStudent, findExistingStudentMatches } = require('../services/studentProgressionService');
 const { getInitialTermForIntake, createStudentBalance } = require('../utils/termHelper');
 const { parseLevels } = require('./courses.controller');
 
@@ -258,7 +259,7 @@ const getApplicationById = async (req, res) => {
 // PATCH /api/applications/:id/status — Admin approve/reject
 const updateApplicationStatus = async (req, res) => {
   try {
-    const { status, review_notes, intake, year } = req.body;
+    const { status, review_notes, intake, year, continue_student_id, create_new } = req.body;
     const validStatuses = ['UNDER_REVIEW', 'APPROVED', 'REJECTED'];
 
     if (!validStatuses.includes(status)) {
@@ -306,6 +307,85 @@ const updateApplicationStatus = async (req, res) => {
         },
       });
       return res.json({ message: `Application ${status.toLowerCase()}`, application: updated });
+    }
+
+    // ── RETURNING STUDENT ────────────────────────────────────────────────────
+    // A student who finished a level and is applying for the next one continues on their existing
+    // record (new admission number, history kept) instead of becoming a second student.
+    const intakeForApproval = ['JANUARY', 'MAY', 'SEPTEMBER'].includes(intake) ? intake : 'SEPTEMBER';
+    const yearForApproval = parseInt(year) || new Date().getFullYear();
+
+    if (continue_student_id) {
+      const existing = await prisma.student.findUnique({
+        where: { id: continue_student_id },
+        include: { user: { select: { email: true } }, application: { select: { surname: true, other_names: true } } },
+      });
+      if (!existing) return res.status(404).json({ error: 'The student to continue was not found' });
+
+      const term = await getInitialTermForIntake(intakeForApproval, yearForApproval);
+      const newLevel = application.level_applied || existing.level;
+
+      let result;
+      try {
+        result = await progressStudent({
+          studentId: existing.id,
+          term,
+          newLevel,
+          newIntake: intakeForApproval,
+          newYear: yearForApproval,
+          newCourseId: application.course_id,
+          newDepartmentId: application.department_id,
+          notes: review_notes || `Re-admitted to ${newLevel} (application ${application.application_no})`,
+          userId: req.user.id,
+          kind: 'RE_ADMISSION',
+        });
+      } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
+        throw err;
+      }
+
+      const updated = await prisma.application.update({
+        where: { id: application.id },
+        data: {
+          status: 'APPROVED',
+          reviewed_by: req.user.id,
+          reviewed_at: new Date(),
+          review_notes: review_notes || null,
+          continuing_student_id: existing.id,
+        },
+      });
+
+      sendNotification(
+        existing.user?.email,
+        `Admission to ${newLevel} - North Horr TVC`,
+        `<p>Dear ${existing.application?.surname || 'Student'},</p><p>Your application for <strong>${newLevel}</strong> has been approved. ` +
+        `Your new admission number is <strong>${result.newAdmissionNo}</strong> (previously ${existing.admission_no}). ` +
+        `Log in with your existing account to see your updated details.</p>`
+      ).catch((err) => console.error('Failed to send re-admission email:', err));
+
+      return res.json({
+        message: 'Application approved. Existing student continued on their record.',
+        application: updated,
+        continued_student: {
+          id: existing.id,
+          previous_admission_no: existing.admission_no,
+          admission_no: result.newAdmissionNo,
+          level: newLevel,
+          intake: intakeForApproval,
+          year: yearForApproval,
+        },
+      });
+    }
+
+    if (!create_new) {
+      const matches = await findExistingStudentMatches(application);
+      if (matches.length > 0) {
+        return res.status(409).json({
+          code: 'EXISTING_STUDENT',
+          error: 'This applicant may already be a student. Continue their existing record or confirm they are new.',
+          matches,
+        });
+      }
     }
 
     // ── APPROVAL PATH ────────────────────────────────────────────────────────

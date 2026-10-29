@@ -281,6 +281,8 @@ const exportFeesReport = async (req, res) => {
       total_fees: b.total_fees,
       amount_paid: b.amount_paid,
       balance: b.balance,
+      // billed minus paid for this row, without debt carried from earlier terms (used for totals)
+      due: b.total_fees - b.amount_paid,
       status: b.status,
       updated: b.updated_at,
     }));
@@ -376,9 +378,12 @@ const exportFeesReport = async (req, res) => {
     const sum = (arr, f) => arr.reduce((s, x) => s + (x[f] || 0), 0);
     const totalFees = sum(balanceRows, 'total_fees');
     const totalPaid = sum(balanceRows, 'amount_paid');
-    const totalBalance = sum(balanceRows, 'balance');
-    const byStatus = groupSum(balanceRows, (r) => r.status, ['total_fees', 'amount_paid', 'balance']);
-    const byDept = groupSum(balanceRows, (r) => r.department, ['total_fees', 'amount_paid', 'balance']);
+    // Row balances include debt carried forward, so across terms they overlap. For one term the balance
+    // is what is due for it; across terms use billed minus paid so nothing is counted twice.
+    const balKey = q.term_id ? 'balance' : 'due';
+    const totalBalance = sum(balanceRows, balKey);
+    const byStatus = groupSum(balanceRows, (r) => r.status, ['total_fees', 'amount_paid', balKey]);
+    const byDept = groupSum(balanceRows, (r) => r.department, ['total_fees', 'amount_paid', balKey]);
     const byFeeType = groupSum(paymentRows, (r) => r.fee_type, ['amount']);
     const header = ['', 'Records', 'Total Fees (KES)', 'Paid (KES)', 'Balance (KES)'];
 
@@ -404,13 +409,13 @@ const exportFeesReport = async (req, res) => {
         {
           title: 'By fee status',
           header,
-          rows: byStatus.map((g) => [g.key, g.count, g.total_fees, g.amount_paid, g.balance]),
+          rows: byStatus.map((g) => [g.key, g.count, g.total_fees, g.amount_paid, g[balKey]]),
           money: [2, 3, 4],
         },
         {
           title: 'By department',
           header,
-          rows: byDept.map((g) => [g.key, g.count, g.total_fees, g.amount_paid, g.balance]),
+          rows: byDept.map((g) => [g.key, g.count, g.total_fees, g.amount_paid, g[balKey]]),
           money: [2, 3, 4],
         },
         {
@@ -477,8 +482,9 @@ const exportStudentsReport = async (req, res) => {
         (q.term_id ? sortedBalances[0] : null) ||
         sortedBalances.find((b) => b.term_id === s.current_term_id) ||
         sortedBalances[0];
+      // billed minus paid; summing term balances would count carried-forward debt repeatedly
       const lifetime = s.student_balances.reduce(
-        (acc, b) => ({ fees: acc.fees + b.total_fees, paid: acc.paid + b.amount_paid, balance: acc.balance + b.balance }),
+        (acc, b) => ({ fees: acc.fees + b.total_fees, paid: acc.paid + b.amount_paid, balance: acc.balance + b.total_fees - b.amount_paid }),
         { fees: 0, paid: 0, balance: 0 }
       );
 

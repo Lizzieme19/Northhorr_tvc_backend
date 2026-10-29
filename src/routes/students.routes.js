@@ -22,6 +22,7 @@ const {
   assignStudentTerm,
   bulkAssignTerm,
   importStudentsCsv,
+  mergeStudentRecords,
   deleteStudent,
   getDuplicates,
 } = require('../controllers/students.controller');
@@ -502,6 +503,36 @@ router.get('/duplicates', authenticate, requireRoles('ADMIN', 'REGISTRAR'), getD
  *       404:
  *         description: Student not found
  */
+/**
+ * @swagger
+ * /api/students/{id}/merge:
+ *   post:
+ *     summary: Link an older record of the same student into this one (Admin/Registrar)
+ *     description: Balances, payments, documents and history move to this record; the older admission number, intake and dates become a history stage and the older record is removed.
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               merge_student_id:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Records linked
+ */
+router.post('/:id/merge', authenticate, requireRoles('ADMIN', 'REGISTRAR'), mergeStudentRecords);
+
 router.delete('/:id', authenticate, requireRoles('ADMIN'), deleteStudent);
 
 module.exports = router;

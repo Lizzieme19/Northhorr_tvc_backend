@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { requireRoles, denyRoles } = require('../middleware/roles');
 const {
   admitStudentToTerm,
+  getStudentHistory,
   getStudentProgression,
   getStudentBalances,
   updateProgressionNotes,
@@ -86,6 +87,26 @@ router.get('/:student_id', authenticate, getStudentProgression);
  *         description: Term balances
  */
 router.get('/:student_id/balances', authenticate, denyRoles('REGISTRAR'), getStudentBalances);
+
+/**
+ * @swagger
+ * /api/term-progression/{student_id}/history:
+ *   get:
+ *     summary: Full academic history of a student - every level with its admission number, intake, year and dates
+ *     tags: [Term Progression]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: student_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Student summary and the list of stages (a student may only read their own)
+ */
+router.get('/:student_id/history', authenticate, requireRoles('ADMIN', 'REGISTRAR', 'FINANCE', 'DEPT_HEAD', 'STUDENT'), getStudentHistory);
 
 /**
  * @swagger

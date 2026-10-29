@@ -10,6 +10,7 @@ const { createStudentBalance, canEnrollInTerm } = require('../utils/termHelper')
 const csv = require('csv-parser');
 const { Readable } = require('stream');
 const bcrypt = require('bcryptjs');
+const { mergeStudents } = require('./../services/studentProgressionService');
 
 const studentIncludes = {
   user: { select: { id: true, email: true, role: true } },
@@ -1156,6 +1157,7 @@ const deleteStudent = async (req, res) => {
     await prisma.studentProgression.deleteMany({ where: { student_id: id } });
     await prisma.admissionLetter.deleteMany({ where: { student_id: id } });
     await prisma.studentDocument.deleteMany({ where: { student_id: id } });
+    await prisma.application.updateMany({ where: { continuing_student_id: id }, data: { continuing_student_id: null } });
 
     if (student.user?.id) {
       await prisma.refreshToken.deleteMany({ where: { user_id: student.user.id } });
@@ -1226,7 +1228,26 @@ const getDuplicates = async (req, res) => {
   }
 };
 
+// POST /api/students/:id/merge  body: { merge_student_id }
+// Folds an older record of the same person (merge_student_id) into this one (:id)
+const mergeStudentRecords = async (req, res) => {
+  try {
+    const { merge_student_id } = req.body || {};
+    if (!merge_student_id) return res.status(400).json({ error: 'merge_student_id is required' });
+    const result = await mergeStudents(req.params.id, merge_student_id, req.user.id);
+    res.json({
+      message: `Linked ${result.merged} into ${result.kept}. The earlier record is now part of this student's history.`,
+      ...result,
+    });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('Merge students error:', err);
+    res.status(500).json({ error: 'Failed to link student records' });
+  }
+};
+
 module.exports = {
+  mergeStudentRecords,
   getStudents, getStudentById, getMyProfile, updateStudent,
   updateMyProfile, uploadPhoto, uploadStudentDocuments, uploadMyDocuments, getStudentStats,
   uploadMyProfilePicture, generateIdCard, generatePrefilledDocument, enrollInTerm,

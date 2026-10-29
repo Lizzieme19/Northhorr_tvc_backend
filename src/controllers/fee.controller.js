@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { summarizeBalances } = require('../utils/feeTotals');
 
 // Calculate fees for a student based on level and term
 const calculateTermFees = async (studentId, termId) => {
@@ -112,17 +113,13 @@ const enrollStudentInTerm = async (req, res) => {
 
     // Check previous term balance if enforcing full payment
     if (!allowPartialPayment) {
-      const previousBalances = await prisma.studentBalance.findMany({
-        where: {
-          student_id: studentId,
-          balance: { gt: 0 },
-        },
-      });
+      const allBalances = await prisma.studentBalance.findMany({ where: { student_id: studentId } });
+      const { outstanding } = summarizeBalances(allBalances);
 
-      if (previousBalances.length > 0) {
+      if (outstanding > 0.01) {
         return res.status(400).json({
-          error: 'Student has outstanding balances from previous terms',
-          outstandingBalances: previousBalances,
+          error: `Student has an outstanding balance of KES ${outstanding.toLocaleString()} from previous terms`,
+          outstandingBalances: allBalances.filter((b) => b.balance > 0),
         });
       }
     }
@@ -510,9 +507,8 @@ const getStudentFeeSummary = async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    const totalBalance = student.student_balances.reduce((sum, b) => sum + b.balance, 0);
-    const totalPaid = student.student_balances.reduce((sum, b) => sum + b.amount_paid, 0);
-    const totalFees = student.student_balances.reduce((sum, b) => sum + b.total_fees, 0);
+    // Billed minus paid: term balances include carried-forward debt, so summing them double counts
+    const { totalFees, totalPaid, outstanding: totalBalance } = summarizeBalances(student.student_balances);
 
     // Group fee records by term_id
     const feeRecordsByTerm = {};
@@ -534,6 +530,7 @@ const getStudentFeeSummary = async (req, res) => {
       },
       level: balance.level,
       total_fees: balance.total_fees,
+      carryover: balance.previous_balance_carryover || 0,
       amount_paid: balance.amount_paid,
       balance: balance.balance,
       status: balance.status,
@@ -592,22 +589,22 @@ const promoteStudent = async (req, res) => {
 
     const student = await prisma.student.findUnique({
       where: { id: studentId },
-      include: {
-        student_balances: {
-          where: { balance: { gt: 0 } },
-        },
-      },
+      include: { student_balances: true },
     });
 
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
 
+    // Fees are cleared when nothing is owed overall (older terms' balances are carried forward)
+    const { outstanding } = summarizeBalances(student.student_balances);
+    const feesCleared = outstanding <= 0.01;
+
     // Check fee clearance unless forcing
-    if (!forcePromote && student.student_balances.length > 0) {
+    if (!forcePromote && !feesCleared) {
       return res.status(400).json({
-        error: 'Student has outstanding balances',
-        outstandingBalances: student.student_balances,
+        error: `Student has an outstanding balance of KES ${outstanding.toLocaleString()}`,
+        outstandingBalances: student.student_balances.filter((b) => b.balance > 0),
       });
     }
 
@@ -629,7 +626,7 @@ const promoteStudent = async (req, res) => {
         academic_year: term.academic_year,
         promoted_by: req.user.id,
         notes,
-        fee_clearance: student.student_balances.length === 0,
+        fee_clearance: feesCleared,
       },
     });
 
@@ -789,7 +786,7 @@ const getBillingDashboard = async (req, res) => {
     if (termId) where.term_id = termId;
     if (status) where.status = status;
 
-    const [balances, total, summary] = await Promise.all([
+    const [balances, total, summary, sums] = await Promise.all([
       prisma.studentBalance.findMany({
         where,
         include: {
@@ -809,6 +806,7 @@ const getBillingDashboard = async (req, res) => {
       prisma.studentBalance.count({ where }),
       prisma.studentBalance.groupBy({
         by: ['status'],
+        where,
         _sum: {
           total_fees: true,
           amount_paid: true,
@@ -816,11 +814,18 @@ const getBillingDashboard = async (req, res) => {
         },
         _count: true,
       }),
+      prisma.studentBalance.aggregate({
+        where,
+        _sum: { total_fees: true, amount_paid: true, balance: true, previous_balance_carryover: true },
+      }),
     ]);
 
-    const totalFees = summary.reduce((sum, s) => sum + (s._sum.total_fees || 0), 0);
-    const totalPaid = summary.reduce((sum, s) => sum + (s._sum.amount_paid || 0), 0);
-    const totalBalance = summary.reduce((sum, s) => sum + (s._sum.balance || 0), 0);
+    const totalFees = sums._sum.total_fees || 0;
+    const totalPaid = sums._sum.amount_paid || 0;
+    // For one term the balance (which includes what was brought forward) is the amount due for it.
+    // Across terms, balances overlap, so use billed minus paid.
+    const totalBalance = termId ? (sums._sum.balance || 0) : totalFees - totalPaid;
+    const totalCarryover = termId ? (sums._sum.previous_balance_carryover || 0) : 0;
 
     res.json({
       balances,
@@ -834,6 +839,7 @@ const getBillingDashboard = async (req, res) => {
         totalFees,
         totalPaid,
         totalBalance,
+        totalCarryover,
         byStatus: summary,
       },
     });

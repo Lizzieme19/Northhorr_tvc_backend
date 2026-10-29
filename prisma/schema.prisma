@@ -247,6 +247,8 @@ model Application {
   reviewed_by     String?
   reviewed_at     DateTime?
   review_notes    String?
+  // Set when this application was approved as a returning student continuing on an existing record
+  continuing_student_id String?
 
   // Documents (B2 keys)
   doc_kcpe        String?
@@ -890,7 +892,7 @@ model StudentProgression {
   student_id      String
   from_level      String?  // Previous level (null for initial enrollment)
   to_level        String   // New level
-  term_id         String   // Term when progression occurred
+  term_id         String?  // Term when progression occurred (empty for records linked from an older student record)
   academic_year   String   // Academic year
   promoted_by     String   // Admin who approved the progression
   notes           String?
@@ -900,10 +902,21 @@ model StudentProgression {
   old_admission_no  String?  // Admission number before this promotion
   new_admission_no  String?  // Newly generated admission number after promotion
 
+  // Intake history: the stage being left (from_*) and the stage being entered (to_*)
+  from_intake       Intake?
+  from_year         Int?
+  to_intake         Intake?
+  to_year           Int?
+  from_course_name  String?
+  to_course_name    String?
+  from_started_at   DateTime? // when the stage being left began
+  effective_date    DateTime? // when the new stage started
+  kind              String   @default("PROMOTION") // PROMOTION | RE_ADMISSION (approved returning applicant) | LINKED (older record merged in)
+
   created_at      DateTime @default(now())
 
   student         Student  @relation(fields: [student_id], references: [id])
-  term            Term     @relation(fields: [term_id], references: [id])
+  term            Term?    @relation(fields: [term_id], references: [id])
   promoter        User     @relation("ProgressionPromoter", fields: [promoted_by], references: [id])
 }
 
