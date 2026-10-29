@@ -181,7 +181,7 @@ const getReportFilters = async (req, res) => {
       prisma.student.findMany({ distinct: ['year'], select: { year: true }, orderBy: { year: 'desc' } }),
       prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
       prisma.course.findMany({ select: { id: true, name: true, department_id: true }, orderBy: { name: 'asc' } }),
-      prisma.term.findMany({ select: { id: true, name: true, academic_year: true }, orderBy: { start_date: 'desc' } }),
+      prisma.term.findMany({ select: { id: true, name: true, academic_year: true, intake: true, start_date: true, end_date: true, term_cost: true, is_active: true }, orderBy: { start_date: 'desc' } }),
       prisma.feeType.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     ]);
     res.json({
