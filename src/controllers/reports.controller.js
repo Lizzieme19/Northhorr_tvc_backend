@@ -1,9 +1,7 @@
 const XLSX = require('xlsx');
 const prisma = require('../config/db');
 
-const STUDENT_STATUSES = ['ACTIVE', 'DEFERRED', 'GRADUATED', 'WITHDRAWN', 'ATTACHMENT'];
-const INTAKES = ['JANUARY', 'MAY', 'SEPTEMBER'];
-const BALANCE_STATUSES = ['PENDING', 'PARTIAL', 'PAID', 'OVERDUE'];
+const { STUDENT_STATUSES, INTAKES, BALANCE_STATUSES, buildStudentWhere } = require('../utils/studentFilters');
 
 // Columns of the student details report that expose fee data (left out for Registrars)
 const FINANCE_COLUMNS = [
@@ -19,37 +17,6 @@ const parseDate = (value, endOfDay = false) => {
   if (isNaN(d.getTime())) return null;
   if (endOfDay) d.setHours(23, 59, 59, 999);
   return d;
-};
-
-// Student-level filters shared by both reports
-const buildStudentWhere = (q) => {
-  const where = {};
-  if (q.department_id) where.department_id = q.department_id;
-  if (q.course_id) where.course_id = q.course_id;
-  if (q.level) where.level = q.level;
-  if (q.intake && INTAKES.includes(String(q.intake).toUpperCase())) where.intake = String(q.intake).toUpperCase();
-  if (q.year && !isNaN(parseInt(q.year))) where.year = parseInt(q.year);
-  if (q.status && STUDENT_STATUSES.includes(String(q.status).toUpperCase())) where.status = String(q.status).toUpperCase();
-  if (q.helb === 'true') where.helb_applied = true;
-  if (q.helb === 'false') where.helb_applied = false;
-
-  const and = [];
-  if (q.gender) and.push({ application: { gender: { equals: q.gender, mode: 'insensitive' } } });
-  if (q.search) {
-    const s = String(q.search).trim();
-    and.push({
-      OR: [
-        { admission_no: { contains: s, mode: 'insensitive' } },
-        { application: { surname: { contains: s, mode: 'insensitive' } } },
-        { application: { other_names: { contains: s, mode: 'insensitive' } } },
-        { application: { phone: { contains: s, mode: 'insensitive' } } },
-        { application: { id_number: { contains: s, mode: 'insensitive' } } },
-        { user: { email: { contains: s, mode: 'insensitive' } } },
-      ],
-    });
-  }
-  if (and.length) where.AND = and;
-  return where;
 };
 
 const fullName = (app) => [app?.surname, app?.other_names].filter(Boolean).join(' ');

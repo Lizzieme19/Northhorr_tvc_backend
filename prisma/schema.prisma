@@ -835,7 +835,8 @@ model FeeType {
   applies_to  String   // ALL, SPECIFIC_COURSE, SPECIFIC_LEVEL
   course_id   String?  // If applies to specific course
   level       String?  // If applies to specific level (e.g., "Certificate", "Diploma")
-  term_based  Boolean  @default(false) // Whether fee is per-term (like tuition)
+  term_based  Boolean  @default(false) // Whether fee is per-term (like tuition). If false it is charged once, in the student's first term.
+  applicant_type String? // KUCCPS or DIRECT to charge only that kind of student; empty = all students
 
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
@@ -877,6 +878,10 @@ model StudentBalance {
   previous_balance_carryover Float @default(0) // Amount carried over from previous term (positive = debt, negative = credit)
   carried_from_term_id        String? // ID of the previous term this balance was carried from
   carryover_notes             String? // Notes about the carry-over
+
+  // Manual correction: when set, this replaces the calculated term fee for this student
+  fee_override   Float?
+  override_reason String?
 
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt

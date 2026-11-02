@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 const { summarizeBalances } = require('./feeTotals');
+const { createStudentBalance } = require('../services/billingService');
 
 /**
  * Map intake month to term number
@@ -88,111 +89,7 @@ function getTermEndDateByIntake(intake, year) {
   return intakeDates[intake] || intakeDates['SEPTEMBER'];
 }
 
-/**
- * Calculate total fees for a student based on their course, level, and term
- * @param {string} courseId - Course ID
- * @param {string} level - Student level
- * @param {string} termId - Term ID
- * @returns {Promise<number>} Total fee amount
- */
-async function calculateStudentFees(courseId, level, termId) {
-  // Get all applicable fee types
-  const feeTypes = await prisma.feeType.findMany({
-    where: {
-      is_active: true,
-      is_disabled: false,
-      OR: [
-        { applies_to: 'ALL' },
-        { applies_to: 'SPECIFIC_COURSE', course_id: courseId },
-        { applies_to: 'SPECIFIC_LEVEL', level: level }
-      ]
-    }
-  });
-
-  // Calculate total
-  let totalFees = 0;
-  let termCostAdded = false; // Track if term cost has been added
-  
-  for (const feeType of feeTypes) {
-    // For term-based fees, use term cost if set, otherwise use fee type amount
-    if (feeType.term_based) {
-      if (!termCostAdded) {
-        const term = await prisma.term.findUnique({
-          where: { id: termId }
-        });
-        if (term && term.term_cost > 0) {
-          totalFees += term.term_cost;
-          termCostAdded = true; // Only add term cost once
-        } else {
-          totalFees += feeType.amount;
-        }
-      }
-      // Skip other term-based fees after term_cost is added
-    } else {
-      // One-time fees (admission, student ID, etc.)
-      totalFees += feeType.amount;
-    }
-  }
-
-  return totalFees;
-}
-
-/**
- * Create or update StudentBalance for a term
- * @param {string} studentId - Student ID
- * @param {string} termId - Term ID
- * @param {string} level - Student level at time of enrollment
- * @returns {Promise<StudentBalance>} The student balance record
- */
-async function createStudentBalance(studentId, termId, level) {
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
-    include: { course: true }
-  });
-
-  if (!student) {
-    throw new Error('Student not found');
-  }
-
-  // Calculate fees
-  const totalFees = await calculateStudentFees(student.course_id, level, termId);
-
-  // Check if balance already exists
-  let balance = await prisma.studentBalance.findUnique({
-    where: {
-      student_term: {
-        student_id: studentId,
-        term_id: termId
-      }
-    }
-  });
-
-  if (balance) {
-    // Update existing balance
-    balance = await prisma.studentBalance.update({
-      where: { id: balance.id },
-      data: {
-        total_fees: totalFees,
-        balance: totalFees - balance.amount_paid
-      }
-    });
-  } else {
-    // Create new balance
-    balance = await prisma.studentBalance.create({
-      data: {
-        student_id: studentId,
-        term_id: termId,
-        level: level,
-        total_fees: totalFees,
-        amount_paid: 0,
-        balance: totalFees,
-        status: 'PENDING'
-      }
-    });
-  }
-
-  return balance;
-}
+// Fees for a term are worked out in one place: services/billingService.js
 
 /**
  * Check if student can enroll in a term
@@ -244,7 +141,6 @@ async function canEnrollInTerm(studentId, termId) {
 module.exports = {
   getIntakeTermNumber,
   getInitialTermForIntake,
-  calculateStudentFees,
   createStudentBalance,
   canEnrollInTerm
 };

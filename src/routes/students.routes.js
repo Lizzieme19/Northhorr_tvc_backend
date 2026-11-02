@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
+const { reassignTerm, removeTerm, getStudentTerms } = require('../controllers/feeCorrections.controller');
+const { previewStudentImport, importStudents, downloadImportTemplate } = require('../controllers/studentImport.controller');
 const { requirePasswordChange } = require('../middleware/requirePasswordChange');
-const { upload } = require('../middleware/upload');
+const { upload, spreadsheetUpload } = require('../middleware/upload');
 const {
   getStudents,
   getStudentById,
@@ -21,7 +23,6 @@ const {
   getMyEnrollments,
   assignStudentTerm,
   bulkAssignTerm,
-  importStudentsCsv,
   mergeStudentRecords,
   deleteStudent,
   getDuplicates,
@@ -447,9 +448,23 @@ router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 
 
 /**
  * @swagger
- * /api/students/import/csv:
+ * /api/students/import/template:
+ *   get:
+ *     summary: Download the student import template (Excel) with instructions and the course/term lists (Admin/Registrar)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Excel template
+ */
+router.get('/import/template', authenticate, requireRoles('ADMIN', 'REGISTRAR'), downloadImportTemplate);
+
+/**
+ * @swagger
+ * /api/students/import/preview:
  *   post:
- *     summary: Import current students via CSV (Admin only)
+ *     summary: Check a CSV, XLS or XLSX file of students and report what an import would do (Admin/Registrar). Creates nothing.
  *     tags: [Students]
  *     security:
  *       - bearerAuth: []
@@ -460,14 +475,44 @@ router.post('/bulk-assign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 
  *           schema:
  *             type: object
  *             properties:
- *               csv_file:
+ *               file:
  *                 type: string
  *                 format: binary
+ *               allow_similar:
+ *                 type: string
+ *                 description: "true to also import rows that look like students who already exist"
  *     responses:
  *       200:
- *         description: CSV import results
+ *         description: Row-by-row results with errors, duplicates and warnings
  */
-router.post('/import/csv', authenticate, requireRoles('ADMIN', 'REGISTRAR'), upload.single('csv_file'), importStudentsCsv);
+router.post('/import/preview', authenticate, requireRoles('ADMIN', 'REGISTRAR'), spreadsheetUpload.single('file'), previewStudentImport);
+
+/**
+ * @swagger
+ * /api/students/import:
+ *   post:
+ *     summary: Import students from a CSV, XLS or XLSX file (Admin/Registrar). Rows with problems are skipped and reported.
+ *     description: Each student gets a login with a temporary password that must be changed at first sign-in. The passwords are returned once in the response.
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               allow_similar:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Import summary and temporary credentials
+ */
+router.post('/import', authenticate, requireRoles('ADMIN', 'REGISTRAR'), spreadsheetUpload.single('file'), importStudents);
 
 /**
  * @swagger
@@ -532,6 +577,49 @@ router.get('/duplicates', authenticate, requireRoles('ADMIN', 'REGISTRAR'), getD
  *         description: Records linked
  */
 router.post('/:id/merge', authenticate, requireRoles('ADMIN', 'REGISTRAR'), mergeStudentRecords);
+
+/**
+ * @swagger
+ * /api/students/{id}/terms/{termId}/reassign:
+ *   post:
+ *     summary: Move a student's term assignment (and its payments) to the correct term (Admin/Finance/Registrar)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *       - { in: path, name: termId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               to_term_id: { type: string }
+ *               reason: { type: string }
+ *     responses:
+ *       200:
+ *         description: Moved and fees recalculated
+ */
+router.get('/:id/terms', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), getStudentTerms);
+router.post('/:id/terms/:termId/reassign', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), reassignTerm);
+
+/**
+ * @swagger
+ * /api/students/{id}/terms/{termId}:
+ *   delete:
+ *     summary: Remove a wrong term assignment - only when nothing was paid against it (Admin/Finance/Registrar)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *       - { in: path, name: termId, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Removed
+ */
+router.delete('/:id/terms/:termId', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), removeTerm);
 
 router.delete('/:id', authenticate, requireRoles('ADMIN'), deleteStudent);
 

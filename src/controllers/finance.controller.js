@@ -1,4 +1,6 @@
 const prisma = require('../config/db');
+const { summarizeBalances } = require('../utils/feeTotals');
+const { parsePaging, buildStudentWhere, resolveFeeFilterIds } = require('../utils/studentFilters');
 // const { sendFeeReminder } = require('../services/emailService');
 
 // Generate unique reference code for fee payments
@@ -9,44 +11,49 @@ const generateReferenceCode = () => {
 };
 
 // GET /api/finance/students
+// Query: page, limit, search, department_id, course_id, level, intake, year, status, gender, helb,
+//        term_id, fee_status, outstanding_only, fee_cleared, sort
 const getFinanceStudents = async (req, res) => {
   try {
-    const { fee_cleared, page = 1, limit = 20, search } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 15 });
+    const where = buildStudentWhere(req.query);
 
-    const where = {};
-    if (fee_cleared === 'true') {
+    // Older shortcut: basic fees (admission + student ID) cleared or not
+    if (req.query.fee_cleared === 'true') {
       where.admission_fee_paid = true;
       where.student_id_fee_paid = true;
-    } else if (fee_cleared === 'false') {
+    } else if (req.query.fee_cleared === 'false') {
       where.OR = [{ admission_fee_paid: false }, { student_id_fee_paid: false }];
     }
+
+    const feeIds = await resolveFeeFilterIds(req.query);
+    if (feeIds) where.id = { in: feeIds };
+
+    const orderBy =
+      req.query.sort === 'admission_no' ? { admission_no: 'asc' }
+        : req.query.sort === 'name' ? { application: { surname: 'asc' } }
+          : { created_at: 'desc' };
 
     const [students, total] = await Promise.all([
       prisma.student.findMany({
         where,
         include: {
-          application: { select: { surname: true, other_names: true, email: true, phone: true, type: true } },
+          application: { select: { surname: true, other_names: true, email: true, phone: true, type: true, gender: true } },
           course: { select: { name: true } },
           department: { select: { name: true } },
-          fee_records: true,
           student_balances: { include: { term: true } },
         },
-        orderBy: { created_at: 'desc' },
+        orderBy,
         skip,
-        take: parseInt(limit),
+        take: limit,
       }),
       prisma.student.count({ where }),
     ]);
 
     res.json({
-      students,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-      },
+      // fee_summary: what the student owes overall (billed minus paid, carried-forward debt counted once)
+      students: students.map((s) => ({ ...s, fee_summary: summarizeBalances(s.student_balances) })),
+      pagination: { total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) },
     });
   } catch (err) {
     console.error(err);

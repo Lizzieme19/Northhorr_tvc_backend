@@ -183,12 +183,21 @@ const submitApplication = async (req, res) => {
 // GET /api/applications — Admin/Dept Head
 const getApplications = async (req, res) => {
   try {
-    const { status, department_id, type, page = 1, limit = 20, search } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { status, department_id, course_id, level_applied, type, date_from, date_to, page = 1, limit = 20, search } = req.query;
+    const lim = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const skip = (Math.max(1, parseInt(page) || 1) - 1) * lim;
 
     const where = {};
     if (status) where.status = status;
     if (type) where.type = type;
+    if (course_id) where.course_id = course_id;
+    if (level_applied) where.level_applied = level_applied;
+    if (date_from || date_to) {
+      const from = date_from ? new Date(date_from) : null;
+      const to = date_to ? new Date(date_to) : null;
+      if (to) to.setHours(23, 59, 59, 999);
+      where.created_at = { ...(from && !isNaN(from) && { gte: from }), ...(to && !isNaN(to) && { lte: to }) };
+    }
 
     // Dept head can only see their department
     if (req.user.role === 'DEPT_HEAD') {
@@ -217,7 +226,7 @@ const getApplications = async (req, res) => {
         },
         orderBy: { created_at: 'desc' },
         skip,
-        take: parseInt(limit),
+        take: lim,
       }),
       prisma.application.count({ where }),
     ]);
@@ -227,8 +236,8 @@ const getApplications = async (req, res) => {
       pagination: {
         total,
         page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
+        limit: lim,
+        pages: Math.max(1, Math.ceil(total / lim)),
       },
     });
   } catch (err) {

@@ -1,4 +1,6 @@
 const prisma = require('../config/db');
+const { createStudentBalance, reconcileMany, studentIdsInTerm } = require('../services/billingService');
+const { audit } = require('./feeCorrections.controller');
 
 // GET /api/terms
 const getAllTerms = async (req, res) => {
@@ -120,7 +122,13 @@ const createTerm = async (req, res) => {
 // PATCH /api/terms/:id
 const updateTerm = async (req, res) => {
   try {
-    const { name, start_date, end_date, academic_year, intake, term_cost, is_active } = req.body;
+    const { name, start_date, end_date, academic_year, intake, term_cost, is_active, apply_to_existing } = req.body;
+
+    const existing = await prisma.term.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Term not found' });
+
+    const newCost = term_cost !== undefined ? Number(term_cost) || 0 : undefined;
+    const costChanged = newCost !== undefined && newCost !== existing.term_cost;
 
     const term = await prisma.term.update({
       where: { id: req.params.id },
@@ -130,15 +138,48 @@ const updateTerm = async (req, res) => {
         ...(end_date && { end_date: new Date(end_date) }),
         ...(academic_year && { academic_year }),
         ...(intake !== undefined && { intake: intake || null }),
-        ...(term_cost !== undefined && { term_cost: term_cost || 0 }),
+        ...(newCost !== undefined && { term_cost: newCost }),
         ...(is_active !== undefined && { is_active }),
       },
     });
 
-    res.json({ term });
+    // A changed term fee reaches the students already billed for this term (and the terms after theirs)
+    // only when the caller confirms it, after seeing the preview.
+    let impact = null;
+    if (costChanged && apply_to_existing === true) {
+      impact = await reconcileMany(await studentIdsInTerm(term.id), { apply: true });
+    }
+    if (costChanged) {
+      await audit(req, {
+        action: 'TERM_FEE_CHANGED', entityType: 'TERM', entityId: term.id,
+        oldValues: { term_cost: existing.term_cost },
+        newValues: { term_cost: newCost, applied_to_existing: apply_to_existing === true, students_changed: impact?.students_changed ?? 0 },
+      });
+    }
+
+    res.json({ term, impact });
   } catch (err) {
     console.error('Update term error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// GET /api/terms/:id/fee-impact?term_cost=33000
+// What changing the term fee would do to students already billed for this term. Nothing is saved.
+const getTermFeeImpact = async (req, res) => {
+  try {
+    const term = await prisma.term.findUnique({ where: { id: req.params.id } });
+    if (!term) return res.status(404).json({ error: 'Term not found' });
+
+    const newCost = Number(req.query.term_cost);
+    if (isNaN(newCost) || newCost < 0) return res.status(400).json({ error: 'term_cost must be 0 or more' });
+
+    const ids = await studentIdsInTerm(term.id);
+    const impact = await reconcileMany(ids, { apply: false, termCostOverrides: { [term.id]: newCost } });
+    res.json({ term: { id: term.id, name: term.name, current_cost: term.term_cost, new_cost: newCost }, students_in_term: ids.length, impact });
+  } catch (err) {
+    console.error('Term fee impact error:', err);
+    res.status(500).json({ error: 'Failed to work out the effect of the change' });
   }
 };
 
@@ -206,44 +247,8 @@ const enrollStudentInTerm = async (req, res) => {
       },
     });
 
-    // Create or update student balance for this term
-    const existingBalance = await prisma.studentBalance.findUnique({
-      where: { student_id_term_id: { student_id: studentId, term_id: termId } },
-    });
-
-    if (!existingBalance) {
-      // Calculate total fees for the student's course
-      const studentWithCourse = await prisma.student.findUnique({
-        where: { id: studentId },
-        include: {
-          course: {
-            include: {
-              feeTypes: {
-                where: { is_active: true },
-              },
-            },
-          },
-        },
-      });
-
-      let totalFees = 0;
-      studentWithCourse.course.feeTypes.forEach(feeType => {
-        if (feeType.applies_to === 'ALL' || feeType.course_id === studentWithCourse.course_id) {
-          totalFees += feeType.amount;
-        }
-      });
-
-      await prisma.studentBalance.create({
-        data: {
-          student_id: studentId,
-          term_id: termId,
-          total_fees: totalFees,
-          amount_paid: 0,
-          balance: totalFees,
-          status: 'PENDING',
-        },
-      });
-    }
+    // Create or refresh the balance row; the billing engine works out the fee and what is brought forward
+    await createStudentBalance(studentId, termId, student.level);
 
     res.json({ 
       message: 'Student enrolled in term successfully',
@@ -288,6 +293,7 @@ module.exports = {
   getTermById,
   createTerm,
   updateTerm,
+  getTermFeeImpact,
   deleteTerm,
   enrollStudentInTerm,
   unenrollStudentFromTerm,

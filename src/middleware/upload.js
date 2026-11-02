@@ -24,6 +24,17 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
+// Spreadsheets for bulk imports (CSV, Excel). The general upload above only allows documents and images.
+const spreadsheetUpload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (['.csv', '.xls', '.xlsx'].includes(ext)) cb(null, true);
+    else cb(new Error(`File type not allowed: ${ext || 'unknown'}. Upload a CSV, XLS or XLSX file.`));
+  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
 /**
  * Upload a buffer to AWS S3, fallback to local disk on timeout
  */
@@ -84,4 +95,4 @@ const uploadDocuments = async (files, folder = 'documents') => {
   return results;
 };
 
-module.exports = { upload, uploadToS3, uploadDocuments };
+module.exports = { upload, spreadsheetUpload, uploadToS3, uploadDocuments };

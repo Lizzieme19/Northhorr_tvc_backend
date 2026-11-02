@@ -1,15 +1,11 @@
 const prisma = require('../config/db');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 
-// "Level 5", "L5" and "5" are all in use; admission numbers use the "L5" form
-const levelCodeOf = (level) => {
-  const m = String(level || '').match(/\d+/);
-  return m ? `L${m[0]}` : String(level || '');
-};
+const { levelCodeOf, sameLevel } = require('../utils/levels');
+const { createStudentBalance } = require('./billingService');
+const { summarizeBalances } = require('../utils/feeTotals');
 
 const academicYearOf = (year) => `${year}/${year + 1}`;
-
-const sameLevel = (a, b) => levelCodeOf(a) === levelCodeOf(b);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROGRESS A STUDENT
@@ -35,30 +31,10 @@ const progressStudent = async (opts) => {
   });
   if (existingBalance) throw Object.assign(new Error('Student already enrolled in this term'), { status: 400 });
 
-  // Debt (or credit) carried from the current term
-  let carryoverAmount = 0;
-  let carryoverNotes = '';
-  let carriedFromTermId = null;
-  if (student.current_term_id) {
-    const previous = await prisma.studentBalance.findUnique({
-      where: { student_term: { student_id: studentId, term_id: student.current_term_id } },
-    });
-    if (previous) {
-      carryoverAmount = previous.balance;
-      carriedFromTermId = student.current_term_id;
-      if (carryoverAmount > 0) carryoverNotes = `Balance of KES ${carryoverAmount} carried forward from previous term`;
-      else if (carryoverAmount < 0) carryoverNotes = `Credit of KES ${Math.abs(carryoverAmount)} carried forward from previous term`;
-    }
-  }
-
-  let totalFees = term.term_cost || 0;
-  if (student.fee_adjustment && student.fee_adjustment > 0) {
-    totalFees -= student.fee_adjustment;
-    carryoverNotes += `${carryoverNotes ? '. ' : ''}Fee adjustment of KES ${student.fee_adjustment} applied`;
-  }
+  // Whether fees were cleared before moving: nothing owed overall (billed minus paid)
+  const priorBalances = await prisma.studentBalance.findMany({ where: { student_id: studentId } });
+  const owedBefore = summarizeBalances(priorBalances).outstanding;
   const levelForFees = newLevel || student.level;
-  const newBalance = totalFees + carryoverAmount;
-  const status = newBalance <= 0 ? 'PAID' : newBalance < totalFees ? 'PARTIAL' : 'PENDING';
 
   const levelChanged = Boolean(newLevel) && !sameLevel(newLevel, student.level);
   const newStage = levelChanged || kind === 'RE_ADMISSION';
@@ -90,20 +66,6 @@ const progressStudent = async (opts) => {
   const effectiveDate = term.start_date || new Date();
 
   const writes = [
-    prisma.studentBalance.create({
-      data: {
-        student_id: studentId,
-        term_id: term.id,
-        level: levelForFees,
-        total_fees: totalFees,
-        amount_paid: 0,
-        balance: newBalance,
-        status,
-        previous_balance_carryover: carryoverAmount,
-        carried_from_term_id: carriedFromTermId,
-        carryover_notes: carryoverNotes || null,
-      },
-    }),
     prisma.student.update({
       where: { id: studentId },
       data: {
@@ -129,7 +91,7 @@ const progressStudent = async (opts) => {
           academic_year: term.academic_year,
           promoted_by: userId,
           notes: (notes || (kind === 'RE_ADMISSION' ? `Re-admitted to ${levelForFees}` : `Promoted from ${student.level} to ${levelForFees}`)) + previousStatusNote,
-          fee_clearance: carryoverAmount <= 0,
+          fee_clearance: owedBefore <= 0.01,
           old_admission_no: student.admission_no,
           new_admission_no: newAdmissionNo,
           from_intake: student.intake,
@@ -147,11 +109,21 @@ const progressStudent = async (opts) => {
   }
 
   const results = await prisma.$transaction(writes);
+
+  // The new term's balance, with the fee and what is brought forward worked out by the billing engine.
+  // Done after the student update so the new level/course/intake are used.
+  const balance = await createStudentBalance(studentId, term.id, levelForFees);
   return {
-    student: results[1],
-    balance: results[0],
-    progression: newStage ? results[2] : null,
-    carryover: { amount: carryoverAmount, from_term_id: carriedFromTermId, notes: carryoverNotes },
+    student: results[0],
+    balance,
+    progression: newStage ? results[1] : null,
+    carryover: {
+      amount: balance.previous_balance_carryover,
+      from_term_id: balance.carried_from_term_id,
+      notes: balance.previous_balance_carryover > 0
+        ? `Balance of KES ${balance.previous_balance_carryover} carried forward from previous term`
+        : balance.previous_balance_carryover < 0 ? `Credit of KES ${Math.abs(balance.previous_balance_carryover)} carried forward from previous term` : '',
+    },
     newAdmissionNo,
   };
 };

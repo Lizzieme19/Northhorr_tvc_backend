@@ -1,88 +1,10 @@
 const prisma = require('../config/db');
 const { summarizeBalances } = require('../utils/feeTotals');
+const { chargeForStudentTerm, createStudentBalance } = require('../services/billingService');
+const { parsePaging, buildStudentWhere } = require('../utils/studentFilters');
 
-// Calculate fees for a student based on level and term
-const calculateTermFees = async (studentId, termId) => {
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
-    include: { course: true },
-  });
-
-  if (!student) {
-    throw new Error('Student not found');
-  }
-
-  const term = await prisma.term.findUnique({
-    where: { id: termId },
-  });
-
-  if (!term) {
-    throw new Error('Term not found');
-  }
-
-  // Get all applicable fee types
-  const feeTypes = await prisma.feeType.findMany({
-    where: {
-      is_active: true,
-      is_disabled: false,
-      OR: [
-        { applies_to: 'ALL' },
-        { applies_to: 'SPECIFIC_LEVEL', level: student.level },
-        { applies_to: 'SPECIFIC_COURSE', course_id: student.course_id },
-      ],
-    },
-  });
-
-  let totalFees = term.term_cost || 0; // Base term cost (tuition)
-  const feeBreakdown = {
-    termCost: term.term_cost || 0,
-    termBasedFees: [],
-    oneTimeFees: [],
-  };
-
-  // Process fee types
-  for (const feeType of feeTypes) {
-    if (feeType.term_based) {
-      // Term-based fees (Library, Laboratory, Sports) - add for each term
-      if (feeType.code !== 'TUITION') { // Skip TUITION as it's the term_cost
-        totalFees += feeType.amount;
-        feeBreakdown.termBasedFees.push({
-          name: feeType.name,
-          code: feeType.code,
-          amount: feeType.amount,
-        });
-      }
-    } else {
-      // One-time fees (Admission, Student ID, KUCCPS, Medical) - only add if not already paid
-      const hasPaid = await prisma.feeRecord.findFirst({
-        where: {
-          student_id: studentId,
-          fee_type_id: feeType.id,
-        },
-      });
-      if (!hasPaid) {
-        totalFees += feeType.amount;
-        feeBreakdown.oneTimeFees.push({
-          name: feeType.name,
-          code: feeType.code,
-          amount: feeType.amount,
-        });
-      }
-    }
-  }
-
-  // Apply fee adjustment if any
-  const adjustment = student.fee_adjustment || 0;
-  totalFees -= adjustment;
-
-  return {
-    totalFees: Math.max(0, totalFees),
-    feeBreakdown,
-    adjustment,
-    level: student.level,
-    course: student.course.name,
-  };
-};
+// Fees for a term come from the billing engine (services/billingService.js), shared by every enrol path
+const calculateTermFees = chargeForStudentTerm;
 
 // Enroll student in a term with fee calculation
 const enrollStudentInTerm = async (req, res) => {
@@ -124,18 +46,8 @@ const enrollStudentInTerm = async (req, res) => {
       }
     }
 
-    // Create student balance record
-    const studentBalance = await prisma.studentBalance.create({
-      data: {
-        student_id: studentId,
-        term_id: termId,
-        level: student.level,
-        total_fees: feeCalculation.totalFees,
-        amount_paid: 0,
-        balance: feeCalculation.totalFees,
-        status: feeCalculation.totalFees === 0 ? 'PAID' : 'PENDING',
-      },
-    });
+    // Create the balance row; the engine works out the fee and what is brought forward
+    const studentBalance = await createStudentBalance(studentId, termId, student.level);
 
     // Update student's current term
     await prisma.student.update({
@@ -534,6 +446,8 @@ const getStudentFeeSummary = async (req, res) => {
       level: balance.level,
       total_fees: balance.total_fees,
       carryover: balance.previous_balance_carryover || 0,
+      fee_override: balance.fee_override,
+      override_reason: balance.override_reason,
       amount_paid: balance.amount_paid,
       balance: balance.balance,
       status: balance.status,
@@ -727,18 +641,8 @@ const studentSelfEnroll = async (req, res) => {
     // Calculate fees
     const feeCalculation = await calculateTermFees(studentId, termId);
 
-    // Create student balance record
-    const studentBalance = await prisma.studentBalance.create({
-      data: {
-        student_id: studentId,
-        term_id: termId,
-        level: student.level,
-        total_fees: feeCalculation.totalFees,
-        amount_paid: 0,
-        balance: feeCalculation.totalFees,
-        status: feeCalculation.totalFees === 0 ? 'PAID' : 'PENDING',
-      },
-    });
+    // Create the balance row; the engine works out the fee and what is brought forward
+    const studentBalance = await createStudentBalance(studentId, termId, student.level);
 
     // Update student's current term
     await prisma.student.update({
@@ -782,12 +686,15 @@ const getStudentEnrollments = async (req, res) => {
 // Get billing dashboard data for Finance role
 const getBillingDashboard = async (req, res) => {
   try {
-    const { termId, status, page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { termId, status } = req.query;
+    const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
 
     const where = {};
     if (termId) where.term_id = termId;
     if (status) where.status = status;
+    // department_id, course_id, level, intake, year, gender, search narrow by the student
+    const studentWhere = buildStudentWhere(req.query);
+    if (Object.keys(studentWhere).length) where.student = studentWhere;
 
     const [balances, total, summary, sums] = await Promise.all([
       prisma.studentBalance.findMany({
@@ -804,7 +711,7 @@ const getBillingDashboard = async (req, res) => {
         },
         orderBy: { created_at: 'desc' },
         skip,
-        take: parseInt(limit),
+        take: limit,
       }),
       prisma.studentBalance.count({ where }),
       prisma.studentBalance.groupBy({
@@ -832,12 +739,7 @@ const getBillingDashboard = async (req, res) => {
 
     res.json({
       balances,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-      },
+      pagination: { total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) },
       summary: {
         totalFees,
         totalPaid,

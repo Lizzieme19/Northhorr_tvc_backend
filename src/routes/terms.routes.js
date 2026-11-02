@@ -7,6 +7,7 @@ const {
   getTermById,
   createTerm,
   updateTerm,
+  getTermFeeImpact,
   deleteTerm,
   enrollStudentInTerm,
   unenrollStudentFromTerm,
@@ -137,6 +138,23 @@ router.post('/', authenticate, requireRoles('ADMIN'), createTerm);
  *       200:
  *         description: Term updated
  */
+/**
+ * @swagger
+ * /api/terms/{id}/fee-impact:
+ *   get:
+ *     summary: Preview what changing the term fee would do to students already billed (Admin/Finance)
+ *     tags: [Terms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *       - { in: query, name: term_cost, required: true, schema: { type: number } }
+ *     responses:
+ *       200:
+ *         description: Students and amounts affected. Nothing is saved.
+ */
+router.get('/:id/fee-impact', authenticate, requireRoles('ADMIN', 'FINANCE'), getTermFeeImpact);
+
 router.patch('/:id', authenticate, requireRoles('ADMIN'), updateTerm);
 
 /**

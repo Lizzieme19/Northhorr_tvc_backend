@@ -52,9 +52,12 @@ const getFeeTypeById = async (req, res) => {
 };
 
 // POST /api/fee-types
+// KUCCPS / DIRECT limits a fee to that kind of student; empty means everyone
+const cleanApplicantType = (v) => (v === 'KUCCPS' || v === 'DIRECT' ? v : null);
+
 const createFeeType = async (req, res) => {
   try {
-    const { name, code, description, amount, is_required, applies_to, course_id, level, term_based } = req.body;
+    const { name, code, description, amount, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type } = req.body;
 
     // Check if code already exists
     const existing = await prisma.feeType.findUnique({ where: { code } });
@@ -71,6 +74,8 @@ const createFeeType = async (req, res) => {
         course_id: course_id || null,
         level: level || null,
         term_based: term_based || false,
+        is_disabled: is_disabled || false,
+        applicant_type: cleanApplicantType(applicant_type),
       },
       include: {
         course: { select: { id: true, name: true, shortcode: true } },
@@ -87,7 +92,7 @@ const createFeeType = async (req, res) => {
 // PATCH /api/fee-types/:id
 const updateFeeType = async (req, res) => {
   try {
-    const { name, description, amount, is_active, is_required, applies_to, course_id, level, term_based } = req.body;
+    const { name, description, amount, is_active, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type } = req.body;
 
     const feeType = await prisma.feeType.update({
       where: { id: req.params.id },
@@ -101,6 +106,8 @@ const updateFeeType = async (req, res) => {
         ...(course_id !== undefined && { course_id: course_id || null }),
         ...(level !== undefined && { level }),
         ...(term_based !== undefined && { term_based }),
+        ...(is_disabled !== undefined && { is_disabled }),
+        ...(applicant_type !== undefined && { applicant_type: cleanApplicantType(applicant_type) }),
       },
       include: {
         course: { select: { id: true, name: true, shortcode: true } },

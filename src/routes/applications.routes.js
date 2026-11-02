@@ -3,7 +3,7 @@ const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
 const { requirePasswordChange } = require('../middleware/requirePasswordChange');
-const { upload } = require('../middleware/upload');
+const { upload, spreadsheetUpload } = require('../middleware/upload');
 const {
   submitApplication,
   getApplications,
@@ -341,7 +341,7 @@ router.post(
   '/import/kuccps',
   authenticate,
   requireRoles('ADMIN', 'REGISTRAR'),
-  upload.single('csv_file'),
+  spreadsheetUpload.single('csv_file'),
   importKuccps
 );
 

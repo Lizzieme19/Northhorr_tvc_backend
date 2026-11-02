@@ -14,6 +14,13 @@ const {
   getBillingDashboard,
   getBillingReport,
 } = require('../controllers/fee.controller');
+const {
+  editPayment,
+  voidPayment,
+  setTermFeeOverride,
+  getFeeHistory,
+  reconcile,
+} = require('../controllers/feeCorrections.controller');
 const { authenticate } = require('../middleware/auth');
 const { requireRoles, denyRoles } = require('../middleware/roles');
 
@@ -290,5 +297,93 @@ router.get('/billing/dashboard', authenticate, requireRoles('ADMIN', 'FINANCE'),
  *         description: Billing report
  */
 router.get('/billing/report/:termId', authenticate, requireRoles('ADMIN', 'FINANCE'), getBillingReport);
+
+/**
+ * @swagger
+ * /api/fees/records/{id}:
+ *   patch:
+ *     summary: Correct a payment - amount, date, notes, fee type or term (Admin/Finance). A reason is required and the change is logged.
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Updated payment and recalculated term balances
+ */
+router.patch('/records/:id', authenticate, requireRoles('ADMIN', 'FINANCE'), editPayment);
+
+/**
+ * @swagger
+ * /api/fees/records/{id}/void:
+ *   post:
+ *     summary: Void a wrongly recorded payment (Admin/Finance). A reason is required; the payment is kept in the audit trail.
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Payment voided and balances recalculated
+ */
+router.post('/records/:id/void', authenticate, requireRoles('ADMIN', 'FINANCE'), voidPayment);
+
+/**
+ * @swagger
+ * /api/fees/students/{studentId}/terms/{termId}/fee:
+ *   patch:
+ *     summary: Set one student's fee for one term, or clear it with total_fees null (Admin/Finance)
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: studentId, required: true, schema: { type: string } }
+ *       - { in: path, name: termId, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Recalculated term balances
+ */
+router.patch('/students/:studentId/terms/:termId/fee', authenticate, requireRoles('ADMIN', 'FINANCE'), setTermFeeOverride);
+
+/**
+ * @swagger
+ * /api/fees/students/{studentId}/history:
+ *   get:
+ *     summary: Log of corrections made to a student's fees (Admin/Finance)
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: studentId, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Corrections, newest first
+ */
+router.get('/students/:studentId/history', authenticate, requireRoles('ADMIN', 'FINANCE'), getFeeHistory);
+
+/**
+ * @swagger
+ * /api/fees/reconcile:
+ *   post:
+ *     summary: Check balances against payments and fee settings, and optionally fix them (Admin/Finance; bulk apply is Admin only)
+ *     tags: [Fees]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               student_id: { type: string }
+ *               term_id: { type: string }
+ *               apply: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: What was (or would be) changed
+ */
+router.post('/reconcile', authenticate, requireRoles('ADMIN', 'FINANCE'), reconcile);
 
 module.exports = router;
