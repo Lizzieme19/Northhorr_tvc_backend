@@ -183,55 +183,93 @@ const getFeeHistory = async (req, res) => {
   }
 };
 
+const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+// Moves one student's term row (and its payments) to another term. Throws an error with a status on a refusal.
+const reassignTermCore = async (req, studentId, termId, toTermId, reason) => {
+  if (!toTermId) throw fail('to_term_id is required');
+  if (toTermId === termId) throw fail('Choose a different term');
+
+  const [student, toTerm, rows] = await Promise.all([
+    prisma.student.findUnique({ where: { id: studentId }, select: { id: true, current_term_id: true } }),
+    prisma.term.findUnique({ where: { id: toTermId } }),
+    prisma.studentBalance.findMany({ where: { student_id: studentId }, include: { term: true }, orderBy: { term: { start_date: 'asc' } } }),
+  ]);
+  if (!student) throw fail('Student not found', 404);
+  if (!toTerm) throw fail('The new term was not found', 404);
+
+  const row = rows.find((r) => r.term_id === termId);
+  if (!row) throw fail('The student is not assigned to that term', 404);
+  if (rows.find((r) => r.term_id === toTermId)) {
+    throw fail(`The student is already assigned to ${toTerm.name}. Remove that assignment first, or choose another term.`);
+  }
+
+  // A row that brought debt forward gets it from whatever now comes before it; only a first row keeps an opening balance
+  const wasFirst = rows[0].id === row.id;
+
+  await prisma.$transaction([
+    prisma.studentBalance.update({
+      where: { id: row.id },
+      data: { term_id: toTermId, carried_from_term_id: null, previous_balance_carryover: wasFirst ? row.previous_balance_carryover : 0 },
+    }),
+    prisma.feeRecord.updateMany({ where: { student_id: studentId, term_id: termId }, data: { term_id: toTermId } }),
+    ...(student.current_term_id === termId ? [prisma.student.update({ where: { id: studentId }, data: { current_term_id: toTermId } })] : []),
+  ]);
+
+  await audit(req, {
+    action: 'TERM_REASSIGNED',
+    entityId: studentId,
+    oldValues: { term_id: termId, term: row.term.name },
+    newValues: { term_id: toTermId, term: toTerm.name },
+    reason: (reason || '').trim() || undefined,
+  });
+  await reconcileStudent(studentId);
+  return { from: row.term.name, to: toTerm.name };
+};
+
+// Removes a wrong term assignment. Refused when anything was paid against it.
+const removeTermCore = async (req, studentId, termId, reason) => {
+  const row = await prisma.studentBalance.findUnique({
+    where: { student_term: { student_id: studentId, term_id: termId } },
+    include: { term: true },
+  });
+  if (!row) throw fail('The student is not assigned to that term', 404);
+
+  const payments = await prisma.feeRecord.count({ where: { student_id: studentId, term_id: termId } });
+  if (payments > 0) {
+    throw fail(`${payments} payment(s) were recorded against ${row.term.name}. Move the student to the right term instead, or void those payments first.`);
+  }
+
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { current_term_id: true } });
+  await prisma.studentBalance.delete({ where: { id: row.id } });
+
+  if (student?.current_term_id === termId) {
+    const latest = await prisma.studentBalance.findMany({ where: { student_id: studentId }, include: { term: true }, orderBy: { term: { start_date: 'desc' } }, take: 1 });
+    await prisma.student.update({ where: { id: studentId }, data: { current_term_id: latest[0]?.term_id || null } });
+  }
+
+  await audit(req, { action: 'TERM_REMOVED', entityId: studentId, oldValues: { term_id: termId, term: row.term.name, total_fees: row.total_fees }, newValues: { removed: true }, reason: String(reason || '').trim() || undefined });
+  await reconcileStudent(studentId);
+  return { term: row.term.name };
+};
+
+const sendFailure = (res, err, fallback) => {
+  if (err.status) return res.status(err.status).json({ error: err.message });
+  console.error(fallback, err);
+  return res.status(500).json({ error: err.message || fallback });
+};
+
 // POST /api/students/:id/terms/:termId/reassign   body: { to_term_id, reason? }
 // A student was put in the wrong term: move the term row and its payments to the right one.
 const reassignTerm = async (req, res) => {
   try {
     const { id: studentId, termId } = req.params;
-    const { to_term_id, reason } = req.body;
-    if (!to_term_id) return res.status(400).json({ error: 'to_term_id is required' });
-    if (to_term_id === termId) return res.status(400).json({ error: 'Choose a different term' });
-
-    const [student, toTerm, rows] = await Promise.all([
-      prisma.student.findUnique({ where: { id: studentId }, select: { id: true, current_term_id: true } }),
-      prisma.term.findUnique({ where: { id: to_term_id } }),
-      prisma.studentBalance.findMany({ where: { student_id: studentId }, include: { term: true }, orderBy: { term: { start_date: 'asc' } } }),
-    ]);
-    if (!student) return res.status(404).json({ error: 'Student not found' });
-    if (!toTerm) return res.status(404).json({ error: 'The new term was not found' });
-
-    const row = rows.find((r) => r.term_id === termId);
-    if (!row) return res.status(404).json({ error: 'The student is not assigned to that term' });
-    const clash = rows.find((r) => r.term_id === to_term_id);
-    if (clash) return res.status(400).json({ error: `The student is already assigned to ${toTerm.name}. Remove that assignment first, or choose another term.` });
-
-    // A row that brought debt forward gets it from whatever now comes before it; only a first row keeps an opening balance
-    const wasFirst = rows[0].id === row.id;
-
-    await prisma.$transaction([
-      prisma.studentBalance.update({
-        where: { id: row.id },
-        data: { term_id: to_term_id, carried_from_term_id: null, previous_balance_carryover: wasFirst ? row.previous_balance_carryover : 0 },
-      }),
-      prisma.feeRecord.updateMany({ where: { student_id: studentId, term_id: termId }, data: { term_id: to_term_id } }),
-      ...(student.current_term_id === termId ? [prisma.student.update({ where: { id: studentId }, data: { current_term_id: to_term_id } })] : []),
-    ]);
-
-    await audit(req, {
-      action: 'TERM_REASSIGNED',
-      entityId: studentId,
-      oldValues: { term_id: termId, term: row.term.name },
-      newValues: { term_id: to_term_id, term: toTerm.name },
-      reason: (reason || '').trim() || undefined,
-    });
-    await reconcileStudent(studentId);
-
+    const r = await reassignTermCore(req, studentId, termId, req.body.to_term_id, req.body.reason);
     // Registrars handle term assignment but not finance, so they get no amounts back
-    if (req.user.role === 'REGISTRAR') return res.json({ message: `Moved from ${row.term.name} to ${toTerm.name}` });
-    res.json({ message: `Moved from ${row.term.name} to ${toTerm.name}. Payments moved with it and the fees were recalculated.`, balances: await balancesOf(studentId) });
+    if (req.user.role === 'REGISTRAR') return res.json({ message: `Moved from ${r.from} to ${r.to}` });
+    res.json({ message: `Moved from ${r.from} to ${r.to}. Payments moved with it and the fees were recalculated.`, balances: await balancesOf(studentId) });
   } catch (err) {
-    console.error('Reassign term error:', err);
-    res.status(500).json({ error: err.message || 'Failed to reassign term' });
+    sendFailure(res, err, 'Failed to reassign term');
   }
 };
 
@@ -240,34 +278,56 @@ const reassignTerm = async (req, res) => {
 const removeTerm = async (req, res) => {
   try {
     const { id: studentId, termId } = req.params;
-    const reason = (req.body && req.body.reason) || req.query.reason || '';
-
-    const row = await prisma.studentBalance.findUnique({
-      where: { student_term: { student_id: studentId, term_id: termId } },
-      include: { term: true },
-    });
-    if (!row) return res.status(404).json({ error: 'The student is not assigned to that term' });
-
-    const payments = await prisma.feeRecord.count({ where: { student_id: studentId, term_id: termId } });
-    if (payments > 0) {
-      return res.status(400).json({ error: `${payments} payment(s) were recorded against ${row.term.name}. Move the student to the right term instead, or void those payments first.` });
-    }
-
-    const student = await prisma.student.findUnique({ where: { id: studentId }, select: { current_term_id: true } });
-    await prisma.studentBalance.delete({ where: { id: row.id } });
-
-    if (student?.current_term_id === termId) {
-      const latest = await prisma.studentBalance.findMany({ where: { student_id: studentId }, include: { term: true }, orderBy: { term: { start_date: 'desc' } }, take: 1 });
-      await prisma.student.update({ where: { id: studentId }, data: { current_term_id: latest[0]?.term_id || null } });
-    }
-
-    await audit(req, { action: 'TERM_REMOVED', entityId: studentId, oldValues: { term_id: termId, term: row.term.name, total_fees: row.total_fees }, newValues: { removed: true }, reason: String(reason).trim() || undefined });
-    await reconcileStudent(studentId);
-
-    res.json({ message: `Removed ${row.term.name}` });
+    const r = await removeTermCore(req, studentId, termId, (req.body && req.body.reason) || req.query.reason);
+    res.json({ message: `Removed ${r.term}` });
   } catch (err) {
-    console.error('Remove term error:', err);
-    res.status(500).json({ error: err.message || 'Failed to remove term' });
+    sendFailure(res, err, 'Failed to remove term');
+  }
+};
+
+const MAX_BULK = 500;
+
+// Runs one action for each student and reports who was done and who was skipped, with the reason
+const bulkTermAction = async (req, res, studentIds, action) => {
+  if (!Array.isArray(studentIds) || studentIds.length === 0) return res.status(400).json({ error: 'studentIds is required' });
+  if (studentIds.length > MAX_BULK) return res.status(400).json({ error: `Select at most ${MAX_BULK} students at a time` });
+
+  const students = await prisma.student.findMany({ where: { id: { in: studentIds } }, select: { id: true, admission_no: true } });
+  const name = new Map(students.map((s) => [s.id, s.admission_no]));
+
+  const done = [];
+  const skipped = [];
+  for (const id of studentIds) {
+    try {
+      await action(id);
+      done.push({ studentId: id, admission_no: name.get(id) });
+    } catch (err) {
+      skipped.push({ studentId: id, admission_no: name.get(id) || id, error: err.status ? err.message : 'Something went wrong' });
+      if (!err.status) console.error('Bulk term action error:', err);
+    }
+  }
+  res.json({ summary: { total: studentIds.length, successful: done.length, failed: skipped.length }, done, errors: skipped });
+};
+
+// POST /api/students/bulk-remove-term   body: { studentIds, termId, reason? }
+const bulkRemoveTerm = async (req, res) => {
+  try {
+    const { studentIds, termId, reason } = req.body || {};
+    if (!termId) return res.status(400).json({ error: 'termId is required' });
+    await bulkTermAction(req, res, studentIds, (id) => removeTermCore(req, id, termId, reason));
+  } catch (err) {
+    sendFailure(res, err, 'Failed to remove the term');
+  }
+};
+
+// POST /api/students/bulk-reassign-term   body: { studentIds, fromTermId, toTermId, reason? }
+const bulkReassignTerm = async (req, res) => {
+  try {
+    const { studentIds, fromTermId, toTermId, reason } = req.body || {};
+    if (!fromTermId || !toTermId) return res.status(400).json({ error: 'fromTermId and toTermId are required' });
+    await bulkTermAction(req, res, studentIds, (id) => reassignTermCore(req, id, fromTermId, toTermId, reason));
+  } catch (err) {
+    sendFailure(res, err, 'Failed to move the term');
   }
 };
 
@@ -317,4 +377,4 @@ const getStudentTerms = async (req, res) => {
   }
 };
 
-module.exports = { getStudentTerms, editPayment, voidPayment, setTermFeeOverride, getFeeHistory, reassignTerm, removeTerm, reconcile, audit };
+module.exports = { bulkRemoveTerm, bulkReassignTerm, getStudentTerms, editPayment, voidPayment, setTermFeeOverride, getFeeHistory, reassignTerm, removeTerm, reconcile, audit };

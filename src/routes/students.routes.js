@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
-const { reassignTerm, removeTerm, getStudentTerms } = require('../controllers/feeCorrections.controller');
+const { reassignTerm, removeTerm, getStudentTerms, bulkRemoveTerm, bulkReassignTerm } = require('../controllers/feeCorrections.controller');
 const { previewStudentImport, importStudents, downloadImportTemplate } = require('../controllers/studentImport.controller');
 const { requirePasswordChange } = require('../middleware/requirePasswordChange');
 const { upload, spreadsheetUpload } = require('../middleware/upload');
@@ -601,6 +601,53 @@ router.post('/:id/merge', authenticate, requireRoles('ADMIN', 'REGISTRAR'), merg
  *       200:
  *         description: Moved and fees recalculated
  */
+/**
+ * @swagger
+ * /api/students/bulk-remove-term:
+ *   post:
+ *     summary: Remove a term assignment from several students at once (Admin/Finance/Registrar). Students with payments in that term are skipped and reported.
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               studentIds: { type: array, items: { type: string } }
+ *               termId: { type: string }
+ *               reason: { type: string }
+ *     responses:
+ *       200:
+ *         description: Who was done and who was skipped, with reasons
+ */
+router.post('/bulk-remove-term', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), bulkRemoveTerm);
+
+/**
+ * @swagger
+ * /api/students/bulk-reassign-term:
+ *   post:
+ *     summary: Move several students from one term to the correct one (Admin/Finance/Registrar). Payments move with them.
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               studentIds: { type: array, items: { type: string } }
+ *               fromTermId: { type: string }
+ *               toTermId: { type: string }
+ *               reason: { type: string }
+ *     responses:
+ *       200:
+ *         description: Who was moved and who was skipped, with reasons
+ */
+router.post('/bulk-reassign-term', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), bulkReassignTerm);
+
 router.get('/:id/terms', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), getStudentTerms);
 router.post('/:id/terms/:termId/reassign', authenticate, requireRoles('ADMIN', 'FINANCE', 'REGISTRAR'), reassignTerm);
 
