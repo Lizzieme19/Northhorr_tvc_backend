@@ -836,6 +836,10 @@ model FeeType {
   course_id   String?  // If applies to specific course
   level       String?  // If applies to specific level (e.g., "Certificate", "Diploma")
   term_based  Boolean  @default(false) // Whether fee is per-term (like tuition). If false it is charged once, in the student's first term.
+  // How this fee is billed: NOT_BILLED (only a category for allocating payments), ONCE (first term) or EVERY_TERM
+  // (on top of the term fee). Empty on older fee types, which then follow term_based / added_to_term_fee.
+  billing     String?
+  added_to_term_fee Boolean @default(false) // Per-term fees are normally part of the term fee; tick to charge this one in addition to it
   applicant_type String? // KUCCPS or DIRECT to charge only that kind of student; empty = all students
 
   created_at  DateTime @default(now())

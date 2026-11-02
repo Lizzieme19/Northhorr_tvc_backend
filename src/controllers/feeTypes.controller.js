@@ -55,9 +55,15 @@ const getFeeTypeById = async (req, res) => {
 // KUCCPS / DIRECT limits a fee to that kind of student; empty means everyone
 const cleanApplicantType = (v) => (v === 'KUCCPS' || v === 'DIRECT' ? v : null);
 
+// NOT_BILLED | ONCE | EVERY_TERM. The older term_based / added_to_term_fee columns are kept in step with it.
+const BILLING = ['NOT_BILLED', 'ONCE', 'EVERY_TERM'];
+const billingFields = (billing) => (BILLING.includes(billing)
+  ? { billing, term_based: billing === 'EVERY_TERM', added_to_term_fee: billing === 'EVERY_TERM' }
+  : {});
+
 const createFeeType = async (req, res) => {
   try {
-    const { name, code, description, amount, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type } = req.body;
+    const { name, code, description, amount, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type, added_to_term_fee, billing } = req.body;
 
     // Check if code already exists
     const existing = await prisma.feeType.findUnique({ where: { code } });
@@ -75,6 +81,10 @@ const createFeeType = async (req, res) => {
         level: level || null,
         term_based: term_based || false,
         is_disabled: is_disabled || false,
+        added_to_term_fee: added_to_term_fee || false,
+        // new fee types are not billed until it is chosen
+        billing: 'NOT_BILLED',
+        ...billingFields(billing),
         applicant_type: cleanApplicantType(applicant_type),
       },
       include: {
@@ -92,7 +102,7 @@ const createFeeType = async (req, res) => {
 // PATCH /api/fee-types/:id
 const updateFeeType = async (req, res) => {
   try {
-    const { name, description, amount, is_active, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type } = req.body;
+    const { name, description, amount, is_active, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type, added_to_term_fee, billing } = req.body;
 
     const feeType = await prisma.feeType.update({
       where: { id: req.params.id },
@@ -107,6 +117,8 @@ const updateFeeType = async (req, res) => {
         ...(level !== undefined && { level }),
         ...(term_based !== undefined && { term_based }),
         ...(is_disabled !== undefined && { is_disabled }),
+        ...(added_to_term_fee !== undefined && { added_to_term_fee }),
+        ...billingFields(billing),
         ...(applicant_type !== undefined && { applicant_type: cleanApplicantType(applicant_type) }),
       },
       include: {

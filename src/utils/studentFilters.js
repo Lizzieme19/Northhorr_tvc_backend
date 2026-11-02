@@ -73,12 +73,17 @@ const resolveFeeFilterIds = async (q) => {
     return [...new Set(rows.map((r) => r.student_id))];
   }
 
-  const sums = await prisma.studentBalance.groupBy({ by: ['student_id'], _sum: { total_fees: true, amount_paid: true } });
+  const [sums, openings] = await Promise.all([
+    prisma.studentBalance.groupBy({ by: ['student_id'], _sum: { total_fees: true, amount_paid: true } }),
+    // a balance the student started with sits on a row that did not bring it forward from another term
+    prisma.studentBalance.groupBy({ by: ['student_id'], where: { carried_from_term_id: null }, _sum: { previous_balance_carryover: true } }),
+  ]);
+  const opening = new Map(openings.map((o) => [o.student_id, o._sum.previous_balance_carryover || 0]));
   return sums
     .filter((s) => {
       const fees = s._sum.total_fees || 0;
       const paid = s._sum.amount_paid || 0;
-      const owing = fees - paid;
+      const owing = fees - paid + (opening.get(s.student_id) || 0);
       if (outstandingOnly && owing <= 0.01) return false;
       if (status === 'PAID') return fees > 0 && owing <= 0.01;
       if (status === 'PARTIAL') return paid > 0 && owing > 0.01;

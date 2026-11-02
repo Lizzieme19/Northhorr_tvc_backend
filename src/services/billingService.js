@@ -31,11 +31,16 @@ const feeTypeApplies = (ft, student, level, applicantType) => {
   return true;
 };
 
+// How a fee type is billed. Set on the fee type: NOT_BILLED, ONCE or EVERY_TERM.
+// Fee types made before that setting existed keep behaving as they did.
+const billingOf = (ft) => ft.billing || (ft.term_based ? (ft.added_to_term_fee ? 'EVERY_TERM' : 'NOT_BILLED') : 'ONCE');
+
 // What a student is charged for one term.
-//   term fee (Term.term_cost)
-// + fee types charged every term (term_based)
-// + fee types charged once (not term_based), in the student's first term only
+//   term fee (Term.term_cost). This is the whole recurring fee.
+// + fee types billed EVERY_TERM (on top of the term fee)
+// + fee types billed ONCE, in the student's first term only
 // - the student's fee adjustment (discount / waiver)
+// A fee type that is NOT_BILLED never adds anything; it is only a category for allocating payments.
 const computeCharge = ({ student, level, termCost, feeTypes, isFirstTerm }) => {
   const applicantType = student.application?.type || null;
   const applicable = feeTypes.filter((ft) => feeTypeApplies(ft, student, level, applicantType));
@@ -49,10 +54,11 @@ const computeCharge = ({ student, level, termCost, feeTypes, isFirstTerm }) => {
 
   for (const ft of applicable) {
     if (ft.code === 'TUITION') continue;
-    if (ft.term_based) {
+    const billing = billingOf(ft);
+    if (billing === 'EVERY_TERM') {
       total += ft.amount;
       breakdown.push({ code: ft.code, name: ft.name, amount: ft.amount, kind: 'every term' });
-    } else if (isFirstTerm) {
+    } else if (billing === 'ONCE' && isFirstTerm) {
       total += ft.amount;
       breakdown.push({ code: ft.code, name: ft.name, amount: ft.amount, kind: 'once' });
     }
@@ -92,8 +98,10 @@ const planStudent = async (studentId, { termCostOverrides = {}, feeTypes } = {})
     const charge = computeCharge({ student, level: row.level || student.level, termCost, feeTypes: types, isFirstTerm: i === 0 });
 
     const total_fees = row.fee_override != null ? round2(row.fee_override) : charge.total;
-    // The first term keeps whatever opening balance it was given; later terms bring forward the term before
-    const carryover = prev ? prev.after.balance : round2(row.previous_balance_carryover || 0);
+    // Later terms bring forward the term before. The first term keeps an opening balance it was given
+    // (set when the student was imported). A brought-forward amount that came from a term that no longer
+    // precedes it (removed or moved) is stale and drops to nothing.
+    const carryover = prev ? prev.after.balance : (row.carried_from_term_id ? 0 : round2(row.previous_balance_carryover || 0));
     const amount_paid = round2(paidByTerm[row.term_id] || 0);
     const balance = round2(total_fees + carryover - amount_paid);
 
@@ -106,7 +114,7 @@ const planStudent = async (studentId, { termCostOverrides = {}, feeTypes } = {})
       },
       after: {
         total_fees, carryover, amount_paid, balance, status: statusFor(balance, amount_paid),
-        carried_from_term_id: prev ? prev.row.term_id : row.carried_from_term_id,
+        carried_from_term_id: prev ? prev.row.term_id : null,
       },
     });
   });

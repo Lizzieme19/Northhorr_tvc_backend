@@ -11,11 +11,13 @@ const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const summarizeBalances = (rows = []) => {
   const totalFees = rows.reduce((s, r) => s + (r.total_fees || 0), 0);
   const totalPaid = rows.reduce((s, r) => s + (r.amount_paid || 0), 0);
+  // A balance the student started with (e.g. from an import) sits on a row that did not bring it forward from another term
+  const opening = rows.reduce((s, r) => s + (r.carried_from_term_id ? 0 : (r.previous_balance_carryover || 0)), 0);
   return {
     totalFees: round2(totalFees),
     totalPaid: round2(totalPaid),
     // negative = the student is in credit
-    outstanding: round2(totalFees - totalPaid),
+    outstanding: round2(totalFees - totalPaid + opening),
   };
 };
 
