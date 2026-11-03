@@ -280,12 +280,15 @@ const analyzeWorkbook = async (buffer) => {
   }
 
   // Stock lines go to Inventory
+  // An item already in Inventory with the same name counts as the same item when its unit matches or it has no
+  // unit recorded yet (older items were entered without one), so importing never doubles up the stock.
   const haveStock = new Set(existingStock.map((s) => `${key(s.name)}|${key(s.unit_of_measure)}`));
+  const unitless = new Set(existingStock.filter((s) => !key(s.unit_of_measure)).map((s) => key(s.name)));
   let stockNo = stockCodes.reduce((m, s) => Math.max(m, parseInt(s.item_code.replace(/\D/g, ''), 10) || 0), 0);
   const stock = stockRows.map((s) => {
     const name = sentenceCase(s.description);
     const unit = s.unit || 'pcs';
-    const exists = haveStock.has(`${key(name)}|${key(unit)}`);
+    const exists = haveStock.has(`${key(name)}|${key(unit)}`) || unitless.has(key(name));
     const warnings = [];
     if (s.quantity === null) warnings.push('No quantity, 0 used');
     if (s.quantity !== null && !Number.isInteger(s.quantity)) warnings.push(`Quantity ${s.quantity} was rounded`);
