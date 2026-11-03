@@ -566,6 +566,13 @@ model RequisitionItem {
   total_price     Float?
   specifications  String?
 
+  // what is being bought: a consumable (goes to Inventory) or an asset (tagged one by one in the asset register)
+  item_type         String?  // CONSUMABLE | ASSET
+  unit_of_measure   String?  // optional; for consumables (pcs, ream, box...)
+  inventory_item_id String?  // the Inventory item, when it is a consumable already in stock
+  asset_class       String?  // ICT, FURNITURE, ... when it is an asset
+  asset_category    String?  // the asset item type, e.g. Computer monitor
+
   created_at      DateTime @default(now())
 
   requisition     PurchaseRequisition @relation(fields: [requisition_id], references: [id], onDelete: Cascade)
@@ -647,6 +654,13 @@ model LPOItem {
   total_price     Float
   specifications  String?
 
+  // what is being bought: a consumable (goes to Inventory) or an asset (tagged one by one in the asset register)
+  item_type         String?  // CONSUMABLE | ASSET
+  unit_of_measure   String?  // optional; for consumables (pcs, ream, box...)
+  inventory_item_id String?  // the Inventory item, when it is a consumable already in stock
+  asset_class       String?  // ICT, FURNITURE, ... when it is an asset
+  asset_category    String?  // the asset item type, e.g. Computer monitor
+
   created_at      DateTime @default(now())
 
   lpo             LPO      @relation(fields: [lpo_id], references: [id], onDelete: Cascade)
@@ -676,10 +690,19 @@ model GRNItem {
   quantity_ordered Int
   quantity_received Int
   quantity_accepted Int
+
+  // what is being bought: a consumable (goes to Inventory) or an asset (tagged one by one in the asset register)
+  item_type         String?  // CONSUMABLE | ASSET
+  unit_of_measure   String?  // optional; for consumables (pcs, ream, box...)
+  inventory_item_id String?  // the Inventory item, when it is a consumable already in stock
+  asset_class       String?  // ICT, FURNITURE, ... when it is an asset
+  asset_category    String?  // the asset item type, e.g. Computer monitor
   batch_number    String?
   expiry_date     DateTime?
   condition       String? // GOOD, DAMAGED, DEFECTIVE
   notes           String?
+  unit_price      Float?   // from the LPO line, used as the cost of assets made from it
+  tagged_count    Int      @default(0) // assets already registered from this line
 
   created_at      DateTime @default(now())
 
@@ -700,6 +723,7 @@ model InventoryItem {
   location        String?
   unit_cost       Float?
   supplier_id     String?
+  responsible_officer String?
 
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -744,32 +768,70 @@ model SupplierInvoice {
   supplier        Supplier      @relation(fields: [supplier_id], references: [id])
 }
 
+// The fixed-asset register: one row per individually tagged item (ICT, furniture, plant & machinery, ...).
+// Consumables that are counted and issued live in InventoryItem instead.
 model Asset {
   id              String   @id @default(uuid())
-  asset_code      String   @unique
+  asset_code      String   @unique // the asset's tag number, e.g. NHTVC/ICT/CMT/J/001
   name            String
   description     String?
-  category        String?
-  serial_number   String?
-  purchase_date   DateTime
-  purchase_cost   Float
+  asset_class     String   @default("OTHER") // ICT, FURNITURE, PLANT_MACHINERY, OFFICE_EQUIPMENT, PORTABLE_ATTRACTIVE
+  category        String?  // item type, e.g. "Computer monitor"
+  tag_prefix      String?  // the tag without its running number, e.g. NHTVC/ICT/CMT/J/
+  tag_seq         Int?     // the running number
+  serial_number   String?  // the manufacturer's serial number (not the tag)
+  make_model      String?
+  source_of_funds String?
+  pv_number       String?
+  delivery_date   DateTime?
+  purchase_date   DateTime?
+  purchase_cost   Float?   // empty until valued
   current_value   Float?
-  location        String?
+  location        String?  // older free-text location; location_id is used now
+  location_id          String?
+  original_location_id String?
   department_id   String?
   custodian_id    String?
-  depreciation_rate Float?  // percentage
+  responsible_officer String? // name of the officer in charge, as in the registers
+  condition       String?  // GOOD, FAIR, POOR, UNSERVICEABLE
+  replacement_date DateTime?
+  depreciation_rate Float?  // percentage a year, straight line
   accumulated_depreciation Float @default(0)
   useful_life     Int?     // years
   status          String   @default("ACTIVE") // ACTIVE, DISPOSED, WRITTEN_OFF
   disposal_date   DateTime?
   disposal_reason String?
+  notes           String?
+  attention       String?  // why this record needs a look, e.g. a duplicated tag
+  grn_item_id     String?  // the goods received line this asset was registered from
+  grn_no          String?
+  lpo_no          String?
+  supplier_name   String?
+  imported_from   String?  // where it came from when imported, e.g. "Furniture&Fittings row 146"
 
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
   department      Department? @relation(fields: [department_id], references: [id])
   custodian       Staff?   @relation(fields: [custodian_id], references: [id])
+  current_location  AssetLocation? @relation("AssetCurrentLocation", fields: [location_id], references: [id])
+  original_location AssetLocation? @relation("AssetOriginalLocation", fields: [original_location_id], references: [id])
   maintenance_records MaintenanceRecord[]
+
+  @@index([asset_class])
+  @@index([location_id])
+  @@index([tag_prefix])
+  @@index([grn_item_id])
+}
+
+// Where assets are kept (ICT Lab, Staffroom, Boardroom...). One list, so spelling variants don't multiply.
+model AssetLocation {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  created_at  DateTime @default(now())
+
+  assets          Asset[] @relation("AssetCurrentLocation")
+  original_assets Asset[] @relation("AssetOriginalLocation")
 }
 
 model MaintenanceRecord {

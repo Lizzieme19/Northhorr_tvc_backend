@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
 const {
   getInventory,
+  getUnits,
   getReorderAlerts,
   getInventoryItemById,
   createInventoryItem,
@@ -51,6 +52,20 @@ router.get('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getInventory
  *       200:
  *         description: List of items needing reorder
  */
+/**
+ * @swagger
+ * /api/inventory/units:
+ *   get:
+ *     summary: Units of measure to offer - those already in use plus the common ones (Admin/Procurement)
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Units
+ */
+router.get('/units', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getUnits);
+
 router.get('/alerts', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getReorderAlerts);
 
 /**

@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { normalizeUnit, knownUnits, nextStockCode } = require('../services/procurementItemService');
 
 // GET /api/inventory - List inventory items
 const getInventory = async (req, res) => {
@@ -99,6 +100,16 @@ const getInventoryItemById = async (req, res) => {
   }
 };
 
+// GET /api/inventory/units - units of measure to offer: the ones already used, plus the common ones
+const getUnits = async (req, res) => {
+  try {
+    res.json({ units: await knownUnits() });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 // POST /api/inventory - Create inventory item
 const createInventoryItem = async (req, res) => {
   try {
@@ -117,17 +128,22 @@ const createInventoryItem = async (req, res) => {
       supplier_id,   
     } = req.body;
 
-    if (!item_code || !name) {
-      return res.status(400).json({ error: 'Item code and name are required' });
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Item name is required' });
     }
+    const code = item_code && String(item_code).trim() ? String(item_code).trim() : await nextStockCode();
+    if (await prisma.inventoryItem.findUnique({ where: { item_code: code } })) {
+      return res.status(409).json({ error: `The item code ${code} is already used` });
+    }
+    const unit = normalizeUnit(unit_of_measure, await knownUnits());
 
     const item = await prisma.inventoryItem.create({
       data: {
-        item_code,
-        name,
+        item_code: code,
+        name: String(name).trim(),
         description,
         category,
-        unit_of_measure,
+        unit_of_measure: unit,
         current_stock: current_stock ? parseInt(current_stock) : 0,
         minimum_stock: minimum_stock ? parseInt(minimum_stock) : 0,
         maximum_stock: maximum_stock ? parseInt(maximum_stock) : null,
@@ -182,7 +198,7 @@ const updateInventoryItem = async (req, res) => {
         ...(name && { name }),
         ...(description !== undefined && { description }),
         ...(category !== undefined && { category }),
-        ...(unit_of_measure !== undefined && { unit_of_measure }),
+        ...(unit_of_measure !== undefined && { unit_of_measure: normalizeUnit(unit_of_measure, await knownUnits()) }),
         ...(minimum_stock !== undefined && { minimum_stock: parseInt(minimum_stock) }),
         ...(maximum_stock !== undefined && { maximum_stock: maximum_stock ? parseInt(maximum_stock) : null }),
         ...(reorder_level !== undefined && { reorder_level: parseInt(reorder_level) }),
@@ -266,6 +282,7 @@ const deleteInventoryItem = async (req, res) => {
 
 module.exports = {
   getInventory,
+  getUnits,
   getReorderAlerts,
   getInventoryItemById,
   createInventoryItem,

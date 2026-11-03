@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { readLineKind, carryKind, knownUnits } = require('../services/procurementItemService');
 const { generateLPO } = require('../services/documentService');
 
 // Generate LPO number
@@ -128,6 +129,7 @@ const createLPO = async (req, res) => {
             quantity: item.quantity,
             unit_price: item.unit_price,
             specifications: item.specifications,
+            ...carryKind(item),
           }));
       }
     }
@@ -138,6 +140,9 @@ const createLPO = async (req, res) => {
 
     // Calculate total amount
     const totalAmount = lpoItems.reduce((sum, item) => sum + (item.unit_price * item.quantity || 0), 0);
+
+    const units = await knownUnits();
+    const lineKinds = lpoItems.map(item => readLineKind(item, units));
 
     const lpo = await prisma.lPO.create({
       data: {
@@ -151,13 +156,14 @@ const createLPO = async (req, res) => {
         total_amount: totalAmount,
         currency: 'KES',
         items: {
-          create: lpoItems.map(item => ({
+          create: lpoItems.map((item, i) => ({
             item_name: item.item_name,
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
             total_price: item.quantity * item.unit_price,
             specifications: item.specifications,
+            ...lineKinds[i],
           })),
         },
       },
@@ -170,6 +176,7 @@ const createLPO = async (req, res) => {
 
     res.status(201).json(lpo);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }

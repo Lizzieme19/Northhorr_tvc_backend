@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { readLineKind, knownUnits } = require('../services/procurementItemService');
 
 // Generate requisition number
 const generateRequisitionNo = () => {
@@ -105,6 +106,16 @@ const createRequisition = async (req, res) => {
 
     // Calculate total amount
     const totalAmount = items.reduce((sum, item) => sum + (item.unit_price * item.quantity || 0), 0);
+    const units = await knownUnits();
+    const lines = items.map(item => ({
+      item_name: item.item_name,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total_price: item.quantity * (item.unit_price || 0),
+      specifications: item.specifications,
+      ...readLineKind(item, units),
+    }));
 
     const requisition = await prisma.purchaseRequisition.create({
       data: {
@@ -116,14 +127,7 @@ const createRequisition = async (req, res) => {
         total_amount: totalAmount,
         status: 'DRAFT',
         items: {
-          create: items.map(item => ({
-            item_name: item.item_name,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total_price: item.quantity * (item.unit_price || 0),
-            specifications: item.specifications,
-          })),
+          create: lines,
         },
       },
       include: {
@@ -134,6 +138,7 @@ const createRequisition = async (req, res) => {
 
     res.status(201).json(requisition);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -142,7 +147,31 @@ const createRequisition = async (req, res) => {
 // PATCH /api/requisitions/:id - Update requisition
 const updateRequisition = async (req, res) => {
   try {
-    const { priority, justification, status } = req.body;
+    const { priority, justification, status, items } = req.body;
+
+    // Lines can be changed while the requisition is still a draft
+    let lineChange = {};
+    if (Array.isArray(items) && items.length > 0) {
+      const current = await prisma.purchaseRequisition.findUnique({ where: { id: req.params.id }, select: { status: true } });
+      if (!current) return res.status(404).json({ error: 'Requisition not found' });
+      if (current.status !== 'DRAFT') return res.status(400).json({ error: 'Only a draft requisition can have its items changed' });
+      const units = await knownUnits();
+      lineChange = {
+        total_amount: items.reduce((sum, item) => sum + (item.unit_price * item.quantity || 0), 0),
+        items: {
+          deleteMany: {},
+          create: items.map(item => ({
+            item_name: item.item_name,
+            description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total_price: item.quantity * (item.unit_price || 0),
+            specifications: item.specifications,
+            ...readLineKind(item, units),
+          })),
+        },
+      };
+    }
 
     const requisition = await prisma.purchaseRequisition.update({
       where: { id: req.params.id },
@@ -150,6 +179,7 @@ const updateRequisition = async (req, res) => {
         ...(priority && { priority }),
         ...(justification !== undefined && { justification }),
         ...(status && { status }),
+        ...lineChange,
       },
       include: {
         department: { select: { id: true, name: true } },
@@ -159,6 +189,7 @@ const updateRequisition = async (req, res) => {
 
     res.json(requisition);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }

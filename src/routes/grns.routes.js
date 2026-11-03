@@ -7,6 +7,7 @@ const {
   getGRNById,
   createGRN,
   verifyGRN,
+  updateGRNItem,
   deleteGRN,
   generateGRNPDF,
 } = require('../controllers/grns.controller');
@@ -130,6 +131,23 @@ router.get('/:id/pdf', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), gener
  *       200:
  *         description: GRN verified
  */
+/**
+ * @swagger
+ * /api/grns/{id}/items/{itemId}:
+ *   patch:
+ *     summary: Say what a received line is (consumable or asset, unit of measure) or correct its quantities, while the GRN is pending
+ *     tags: [GRNs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *       - { in: path, name: itemId, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Updated line
+ */
+router.patch('/:id/items/:itemId', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), updateGRNItem);
+
 router.patch('/:id/verify', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), verifyGRN);
 
 /**
