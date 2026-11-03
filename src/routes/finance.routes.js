@@ -9,6 +9,7 @@ const {
   getFeeSummary,
   getStudentBalance,
 } = require('../controllers/finance.controller');
+const { getAnalytics, getAnalyticsHealth } = require('../controllers/analytics.controller');
 const {
   getReportFilters,
   exportFeesReport,
@@ -173,5 +174,34 @@ router.get('/reports/fees/export', authenticate, requireRoles('ADMIN', 'FINANCE'
  *         description: Excel workbook (.xlsx)
  */
 router.get('/reports/students/export', authenticate, requireRoles('ADMIN', 'REGISTRAR'), exportStudentsReport);
+
+/**
+ * @swagger
+ * /api/finance/analytics:
+ *   get:
+ *     summary: Fee analytics - billed, collected, outstanding, collection rate, trends and breakdowns (Admin/Finance)
+ *     description: Computed from the term bills and the payments recorded. Accepts term_id, department_id, course_id, level, intake, year, date_from and date_to.
+ *     tags: [Finance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Analytics for the chosen scope
+ */
+router.get('/analytics', authenticate, requireRoles('ADMIN', 'FINANCE'), getAnalytics);
+
+/**
+ * @swagger
+ * /api/finance/analytics/health:
+ *   get:
+ *     summary: How many students have term balances that are out of step with payments and fee settings (Admin/Finance)
+ *     tags: [Finance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Counts of students and balances that would change if fees were recalculated
+ */
+router.get('/analytics/health', authenticate, requireRoles('ADMIN', 'FINANCE'), getAnalyticsHealth);
 
 module.exports = router;
