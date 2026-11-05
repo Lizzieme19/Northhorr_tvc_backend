@@ -1,5 +1,5 @@
 const prisma = require('../config/db');
-const { readLineKind, knownUnits } = require('../services/procurementItemService');
+const { readLineKind, knownUnits, requestingUnits, resolveRequester } = require('../services/procurementItemService');
 
 // Generate requisition number
 const generateRequisitionNo = () => {
@@ -95,14 +95,25 @@ const getRequisitionById = async (req, res) => {
   }
 };
 
+// GET /api/requisitions/units - non-academic units to offer (Administration, Store...), plus ones already used
+const getRequestingUnits = async (req, res) => {
+  try {
+    res.json({ units: await requestingUnits() });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 // POST /api/requisitions - Create purchase requisition
 const createRequisition = async (req, res) => {
   try {
-    const { department_id, priority, justification, items } = req.body;
+    const { department_id, unit_name, priority, justification, items } = req.body;
 
-    if (!department_id || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'Department and items are required' });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Add at least one item' });
     }
+    const requester = await resolveRequester({ department_id, unit_name });
 
     // Calculate total amount
     const totalAmount = items.reduce((sum, item) => sum + (item.unit_price * item.quantity || 0), 0);
@@ -120,7 +131,7 @@ const createRequisition = async (req, res) => {
     const requisition = await prisma.purchaseRequisition.create({
       data: {
         requisition_no: generateRequisitionNo(),
-        department_id,
+        ...requester,
         requested_by: req.user.id,
         priority,
         justification,
@@ -147,16 +158,20 @@ const createRequisition = async (req, res) => {
 // PATCH /api/requisitions/:id - Update requisition
 const updateRequisition = async (req, res) => {
   try {
-    const { priority, justification, status, items } = req.body;
+    const { priority, justification, status, items, department_id, unit_name } = req.body;
 
-    // Lines can be changed while the requisition is still a draft
+    // Lines and who is asking can be changed while the requisition is still a draft
     let lineChange = {};
-    if (Array.isArray(items) && items.length > 0) {
+    if ((Array.isArray(items) && items.length > 0) || department_id || unit_name) {
       const current = await prisma.purchaseRequisition.findUnique({ where: { id: req.params.id }, select: { status: true } });
       if (!current) return res.status(404).json({ error: 'Requisition not found' });
-      if (current.status !== 'DRAFT') return res.status(400).json({ error: 'Only a draft requisition can have its items changed' });
+      if (current.status !== 'DRAFT') return res.status(400).json({ error: 'Only a draft requisition can be changed' });
+    }
+    if (department_id || unit_name) lineChange = { ...(await resolveRequester({ department_id, unit_name })) };
+    if (Array.isArray(items) && items.length > 0) {
       const units = await knownUnits();
       lineChange = {
+        ...lineChange,
         total_amount: items.reduce((sum, item) => sum + (item.unit_price * item.quantity || 0), 0),
         items: {
           deleteMany: {},
@@ -268,6 +283,7 @@ const deleteRequisition = async (req, res) => {
 };
 
 module.exports = {
+  getRequestingUnits,
   getRequisitions,
   getRequisitionById,
   createRequisition,

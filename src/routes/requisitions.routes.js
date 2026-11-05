@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
 const {
   getRequisitions,
+  getRequestingUnits,
   getRequisitionById,
   createRequisition,
   updateRequisition,
@@ -85,6 +86,20 @@ router.post('/', authenticate, requireRoles('DEPT_HEAD', 'ADMIN', 'PROCUREMENT')
  *       200:
  *         description: Requisition details
  */
+/**
+ * @swagger
+ * /api/requisitions/units:
+ *   get:
+ *     summary: Non-academic units that can request items (Administration, Store...), plus ones already used
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Unit names
+ */
+router.get('/units', authenticate, requireRoles('ADMIN', 'PROCUREMENT', 'DEPT_HEAD'), getRequestingUnits);
+
 router.get('/:id', authenticate, getRequisitionById);
 
 /**

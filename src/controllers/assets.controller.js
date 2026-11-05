@@ -2,7 +2,7 @@ const prisma = require('../config/db');
 const { parsePaging } = require('../utils/studentFilters');
 const { valuation } = require('../utils/assetValuation');
 const {
-  ASSET_CLASSES, CONDITIONS, sentenceCase, parseTag, formatTag, defaultPrefix, tagOptions, nextSeqForPrefix,
+  ASSET_CLASSES, CONDITIONS, sentenceCase, parseTag, formatTag, defaultPrefix, tagOptions, nextSeqForPrefix, findAssetType,
 } = require('../services/assetRegisterService');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,15 +172,16 @@ const getAssetSummary = async (req, res) => {
 // GET /api/assets/options - dropdown values for the filters and the form
 const getAssetOptions = async (req, res) => {
   try {
-    const [categories, locations, sources] = await Promise.all([
-      prisma.asset.groupBy({ by: ['asset_class', 'category'], where: { category: { not: null } }, _count: true }),
+    const [types, locations, sources] = await Promise.all([
+      assetTypeRows(),
       prisma.assetLocation.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { assets: true } } } }),
       prisma.asset.findMany({ where: { source_of_funds: { not: null } }, distinct: ['source_of_funds'], select: { source_of_funds: true } }),
     ]);
     res.json({
       classes: Object.entries(ASSET_CLASSES).map(([key, c]) => ({ key, label: c.label, code: c.code })),
       conditions: CONDITIONS,
-      categories: categories.map((c) => ({ asset_class: c.asset_class, name: c.category, count: c._count })).sort((a, b) => a.name.localeCompare(b.name)),
+      // every asset item: those in the list and any only seen in the register
+      categories: types.map((t) => ({ asset_class: t.asset_class, name: t.name, count: t.count, depreciation_rate: t.depreciation_rate })).sort((a, b) => a.name.localeCompare(b.name)),
       locations: locations.map((l) => ({ id: l.id, name: l.name, count: l._count.assets })),
       sources_of_funds: sources.map((s) => s.source_of_funds),
     });
@@ -188,6 +189,132 @@ const getAssetOptions = async (req, res) => {
     sendError(res, err, 'Could not load the options');
   }
 };
+
+// ── Asset items: the list of what the college buys and tags, like Inventory is for consumables ──
+
+const keyOf = (cls, name) => `${cls}|${String(name || '').trim().toLowerCase()}`;
+
+// The list of asset items. Those added to the list, plus any item type that only exists in the register (from the
+// workbook import, say), which can be "set up" to add it to the list.
+const assetTypeRows = async () => {
+  const [listed, used] = await Promise.all([
+    prisma.assetType.findMany({}),
+    prisma.asset.groupBy({ by: ['asset_class', 'category', 'tag_prefix'], where: { category: { not: null } }, _count: true, _max: { tag_seq: true } }),
+  ]);
+  const rows = new Map();
+  for (const t of listed) {
+    rows.set(keyOf(t.asset_class, t.name), { id: t.id, name: t.name, asset_class: t.asset_class, tag_prefix: t.tag_prefix, depreciation_rate: t.depreciation_rate, description: t.description, count: 0, in_list: true, series: [] });
+  }
+  for (const u of used) {
+    const k = keyOf(u.asset_class, u.category);
+    if (!rows.has(k)) rows.set(k, { id: null, name: u.category, asset_class: u.asset_class, tag_prefix: null, depreciation_rate: null, description: null, count: 0, in_list: false, series: [] });
+    const r = rows.get(k);
+    r.count += u._count;
+    if (u.tag_prefix) r.series.push({ prefix: u.tag_prefix, count: u._count, max: u._max.tag_seq || 0 });
+  }
+  return [...rows.values()].map((r) => {
+    // the series new items continue: the one set on the item, otherwise the one most used in the register
+    const inUse = [...r.series].sort((a, b) => b.count - a.count)[0];
+    const prefix = r.tag_prefix || inUse?.prefix || defaultPrefix(r.asset_class, r.name);
+    const seen = r.series.find((x) => x.prefix === prefix);
+    const { series, ...rest } = r;
+    return { ...rest, class_label: ASSET_CLASSES[r.asset_class]?.label || r.asset_class, tag_series: prefix, tag_series_set: Boolean(r.tag_prefix), next_tag: formatTag(prefix, (seen?.max || 0) + 1) };
+  });
+};
+
+// GET /api/assets/types?asset_class=&search=
+const getAssetTypes = async (req, res) => {
+  try {
+    const { asset_class, search } = req.query;
+    let rows = await assetTypeRows();
+    if (asset_class) rows = rows.filter((r) => r.asset_class === asset_class);
+    if (search) rows = rows.filter((r) => r.name.toLowerCase().includes(String(search).toLowerCase()));
+    rows.sort((a, b) => a.class_label.localeCompare(b.class_label) || a.name.localeCompare(b.name));
+    res.json({ types: rows, total: rows.length, not_in_list: rows.filter((r) => !r.in_list).length });
+  } catch (err) {
+    sendError(res, err, 'Could not load the asset items');
+  }
+};
+
+const readTypeFields = (b) => {
+  const f = {};
+  if (b.description !== undefined) f.description = optionalText(b.description);
+  if (b.depreciation_rate !== undefined) {
+    const r = optionalNumber(b.depreciation_rate, 'Depreciation rate');
+    if (r !== null && r > 100) throw fail('Depreciation rate is a percentage a year, 100 at most');
+    f.depreciation_rate = r;
+  }
+  if (b.tag_prefix !== undefined) {
+    let t = optionalText(b.tag_prefix);
+    if (t) {
+      t = t.replace(/\s+/g, '');
+      if (!/^[A-Za-z0-9]+(\/[A-Za-z0-9-]+)+\/?$/.test(t)) throw fail('A tag series looks like NHTVC/ICT/CMT/ (letters and numbers separated by /)');
+      if (!t.endsWith('/')) t += '/';
+    }
+    f.tag_prefix = t;
+  }
+  return f;
+};
+
+// POST /api/assets/types
+const createAssetType = async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!ASSET_CLASSES[b.asset_class]) throw fail('Choose the type of asset (ICT, furniture, ...)');
+    const name = sentenceCase(b.name);
+    if (!name) throw fail('Give the asset item a name');
+    if (await findAssetType(b.asset_class, name)) throw fail(`${name} is already in the list`, 409);
+    const type = await prisma.assetType.create({ data: { name, asset_class: b.asset_class, ...readTypeFields(b) } });
+    res.status(201).json(type);
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: 'That asset item is already in the list' });
+    sendError(res, err, 'Could not add the asset item');
+  }
+};
+
+// PATCH /api/assets/types/:id - renaming also renames it on the assets that use it
+const updateAssetType = async (req, res) => {
+  try {
+    const type = await prisma.assetType.findUnique({ where: { id: req.params.id } });
+    if (!type) throw fail('Asset item not found', 404);
+    const b = req.body || {};
+    const oldName = type.name;
+    const data = readTypeFields(b);
+    let renamed = null;
+    if (b.name !== undefined) {
+      const name = sentenceCase(b.name);
+      if (!name) throw fail('Give the asset item a name');
+      if (name !== type.name) {
+        const clash = await findAssetType(type.asset_class, name);
+        if (clash && clash.id !== type.id) throw fail(`${name} is already in the list`, 409);
+        data.name = name;
+        renamed = name;
+      }
+    }
+    const updated = await prisma.assetType.update({ where: { id: type.id }, data });
+    if (renamed) await prisma.asset.updateMany({ where: { asset_class: type.asset_class, category: oldName }, data: { category: renamed } });
+    res.json(updated);
+  } catch (err) {
+    sendError(res, err, 'Could not save the asset item');
+  }
+};
+
+// DELETE /api/assets/types/:id - only when no asset uses it
+const deleteAssetType = async (req, res) => {
+  try {
+    const type = await prisma.assetType.findUnique({ where: { id: req.params.id } });
+    if (!type) throw fail('Asset item not found', 404);
+    const inUse = await prisma.asset.count({ where: { asset_class: type.asset_class, category: type.name } });
+    if (inUse > 0) throw fail(`${inUse} asset${inUse === 1 ? ' uses' : 's use'} ${type.name}, so it cannot be removed from the list`, 409);
+    await prisma.assetType.delete({ where: { id: type.id } });
+    res.json({ message: 'Removed from the list' });
+  } catch (err) {
+    sendError(res, err, 'Could not remove the asset item');
+  }
+};
+
+// The depreciation rate set on an asset item, used when an asset has none of its own
+const itemRate = async (assetClass, category) => (category ? (await findAssetType(assetClass, category))?.depreciation_rate ?? null : null);
 
 // GET /api/assets/tag-options?asset_class=&category=
 // Tag numbering already in use for an item type, so a new item continues the sequence
@@ -233,6 +360,7 @@ const createAsset = async (req, res) => {
     const f = readFields(b);
     f.name = f.name || sentenceCase(b.name);
     f.category = f.category || f.name;
+    if (f.depreciation_rate == null) f.depreciation_rate = await itemRate(b.asset_class, f.category);
 
     const created = [];
     if (b.asset_code) {
@@ -336,6 +464,8 @@ const registerReceived = async (req, res) => {
       f.category = f.category || category;
       return f;
     });
+    const rate = await itemRate(line.asset_class, category);
+    fieldSets.forEach((f) => { if (f.depreciation_rate == null) f.depreciation_rate = rate; });
 
     const options = await tagOptions(line.asset_class, category);
     const prefix = shared.tag_prefix || options[0]?.prefix || defaultPrefix(line.asset_class, category);
@@ -536,7 +666,7 @@ const deleteLocation = async (req, res) => {
 };
 
 module.exports = {
-  getToTag, registerReceived, getAssets, getAssetSummary, getAssetOptions, getTagOptions, getAssetById, createAsset, updateAsset,
+  getAssetTypes, createAssetType, updateAssetType, deleteAssetType, getToTag, registerReceived, getAssets, getAssetSummary, getAssetOptions, getTagOptions, getAssetById, createAsset, updateAsset,
   calculateDepreciation, recordMaintenance, disposeAsset, deleteAsset,
   getLocations, createLocation, renameLocation, mergeLocation, deleteLocation,
 };

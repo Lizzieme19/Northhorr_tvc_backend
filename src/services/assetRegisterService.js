@@ -68,12 +68,23 @@ const tagOptions = async (assetClass, category) => {
   const options = rows
     .sort((a, b) => b._count - a._count)
     .map((r) => ({ prefix: r.tag_prefix, count: r._count, next_tag: formatTag(r.tag_prefix, (r._max.tag_seq || 0) + 1) }));
+  // a tag series set on the asset item comes first
+  const item = category ? await findAssetType(assetClass, category) : null;
+  if (item?.tag_prefix) {
+    const at = options.findIndex((o) => o.prefix === item.tag_prefix);
+    if (at > 0) options.unshift(...options.splice(at, 1));
+    else if (at < 0) options.unshift({ prefix: item.tag_prefix, count: 0, next_tag: formatTag(item.tag_prefix, await nextSeqForPrefix(item.tag_prefix)) });
+  }
   if (options.length === 0 && category) {
     const prefix = defaultPrefix(assetClass, category);
     options.push({ prefix, count: 0, next_tag: formatTag(prefix, await nextSeqForPrefix(prefix)) });
   }
   return options;
 };
+
+// The asset item (catalogue entry) for a class and name, ignoring capitals and spacing
+const findAssetType = (assetClass, name) =>
+  prisma.assetType.findFirst({ where: { asset_class: assetClass, name: { equals: sentenceCase(name), mode: 'insensitive' } } });
 
 // ── Locations ────────────────────────────────────────────────────────────────
 
@@ -135,6 +146,6 @@ const canonicalLocations = (rawNames) => {
 
 module.exports = {
   TAG_ROOT, ASSET_CLASSES, CONDITIONS,
-  sentenceCase, parseTag, isTagLike, formatTag, itemCodeFor, defaultPrefix, nextSeqForPrefix, tagOptions,
+  sentenceCase, parseTag, isTagLike, formatTag, itemCodeFor, defaultPrefix, nextSeqForPrefix, tagOptions, findAssetType,
   locKey, levenshtein, canonicalLocations,
 };

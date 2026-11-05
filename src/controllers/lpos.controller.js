@@ -1,5 +1,5 @@
 const prisma = require('../config/db');
-const { readLineKind, carryKind, knownUnits } = require('../services/procurementItemService');
+const { readLineKind, carryKind, knownUnits, resolveRequester } = require('../services/procurementItemService');
 const { generateLPO } = require('../services/documentService');
 
 // Generate LPO number
@@ -97,6 +97,7 @@ const createLPO = async (req, res) => {
       rfq_id,
       supplier_id,
       department_id,
+      unit_name,
       delivery_date,
       payment_terms,
       items,
@@ -105,9 +106,13 @@ const createLPO = async (req, res) => {
     if (!supplier_id) {
       return res.status(400).json({ error: 'Supplier is required' });
     }
-    if (!department_id) {
-      return res.status(400).json({ error: 'Department is required' });
+    // Who the goods are for: chosen here, or taken from the requisition behind the RFQ
+    let ask = { department_id, unit_name };
+    if (!department_id && !unit_name && rfq_id) {
+      const fromRfq = await prisma.rFQ.findUnique({ where: { id: rfq_id }, include: { requisition: { select: { department_id: true, unit_name: true } } } });
+      if (fromRfq?.requisition) ask = { department_id: fromRfq.requisition.department_id, unit_name: fromRfq.requisition.unit_name };
     }
+    const requester = await resolveRequester(ask);
 
     // If items not provided but rfq_id is, fetch items from RFQ's requisition
     let lpoItems = items;
@@ -149,7 +154,7 @@ const createLPO = async (req, res) => {
         lpo_no: generateLPONo(),
         rfq_id,
         supplier_id,
-        department_id,
+        ...requester,
         status: 'DRAFT',
         delivery_date: delivery_date ? new Date(delivery_date) : null,
         payment_terms,

@@ -536,7 +536,8 @@ model Supplier {
 model PurchaseRequisition {
   id              String            @id @default(uuid())
   requisition_no  String            @unique
-  department_id   String
+  department_id   String?  // an academic department, or empty when unit_name is used
+  unit_name       String?  // a non-academic unit, e.g. Administration or Store
   requested_by    String
   approved_by     String?
   status          RequisitionStatus @default(DRAFT)
@@ -549,7 +550,7 @@ model PurchaseRequisition {
   created_at      DateTime          @default(now())
   updated_at      DateTime          @updatedAt
 
-  department      Department        @relation(fields: [department_id], references: [id])
+  department      Department?       @relation(fields: [department_id], references: [id])
   requester       User              @relation("CreatedBy", fields: [requested_by], references: [id])
   approver        User?             @relation("ApprovedBy", fields: [approved_by], references: [id])
   items           RequisitionItem[]
@@ -621,7 +622,8 @@ model LPO {
   lpo_no          String   @unique
   rfq_id          String?
   supplier_id     String
-  department_id   String
+  department_id   String?
+  unit_name       String?  // a non-academic unit, e.g. Administration or Store
   approved_by     String?
   status          LPOStatus @default(DRAFT)
   issue_date      DateTime?
@@ -637,7 +639,7 @@ model LPO {
 
   rfq             RFQ?      @relation(fields: [rfq_id], references: [id])
   supplier        Supplier  @relation(fields: [supplier_id], references: [id])
-  department      Department @relation(fields: [department_id], references: [id])
+  department      Department? @relation(fields: [department_id], references: [id])
   approver        User?     @relation("ApprovedBy", fields: [approved_by], references: [id])
   items           LPOItem[]
   grns            GRN[]
@@ -822,6 +824,23 @@ model Asset {
   @@index([location_id])
   @@index([tag_prefix])
   @@index([grn_item_id])
+}
+
+// The list of asset items the college buys and tags (Computer monitor, Office chair...), like Inventory is for
+// consumables. An item is added once; requisitions pick from the list and the register uses it for tag numbers
+// and the depreciation rate. Assets are linked to it by class and item name (their `category`).
+model AssetType {
+  id                String   @id @default(uuid())
+  name              String
+  asset_class       String   // ICT, FURNITURE, PLANT_MACHINERY, OFFICE_EQUIPMENT, PORTABLE_ATTRACTIVE
+  tag_prefix        String?  // the tag series for this item, e.g. NHTVC/ICT/CMT/J/ (empty = the series already in use, or a new one)
+  depreciation_rate Float?   // percentage a year, used when an asset of this item has none of its own
+  description       String?
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@unique([asset_class, name])
 }
 
 // Where assets are kept (ICT Lab, Staffroom, Boardroom...). One list, so spelling variants don't multiply.

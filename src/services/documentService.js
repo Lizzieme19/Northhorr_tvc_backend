@@ -740,7 +740,7 @@ async function generateLPO(lpo) {
     doc.font('Helvetica-Bold').fontSize(9).fillColor(GREEN).text('ISSUING AUTHORITY', col2X + 10, y + 8);
     doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK).text('North Horr Technical & Vocational College', col2X + 10, y + 22, { width: colW - 20 });
     doc.font('Helvetica').fontSize(9).fillColor(GREY)
-      .text(`Department: ${lpo.department?.name || 'N/A'}`, col2X + 10, doc.y + 2)
+      .text(`Department: ${lpo.department?.name || lpo.unit_name || 'N/A'}`, col2X + 10, doc.y + 2)
       .text(`Issue Date: ${fmtDate(lpo.issue_date || lpo.created_at)}`, col2X + 10)
       .text(`Delivery Date: ${fmtDate(lpo.delivery_date) || 'As agreed'}`, col2X + 10)
       .text(`Payment Terms: ${lpo.payment_terms || '30 days net on receipt of invoice'}`, col2X + 10, doc.y, { width: colW - 20 });
@@ -861,7 +861,7 @@ async function generateRFQ(rfq) {
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#92400E').text('QUOTATION DETAILS', pageLeft + 14, y + 8);
     [
       ['Title:', rfq.title],
-      ['Department:', rfq.requisition?.department?.name || 'N/A'],
+      ['Department:', rfq.requisition?.department?.name || rfq.requisition?.unit_name || 'N/A'],
       ['Issue Date:', fmtDate(rfq.created_at)],
       ['Closing Date:', fmtDate(rfq.closing_date)],
     ].forEach(([label, val], i) => {
@@ -969,7 +969,7 @@ async function generateGRN(grn) {
       ['LPO Reference:', grn.lpo?.lpo_no || 'N/A'],
       ['Supplier:', grn.lpo?.supplier?.name || 'N/A'],
       ['Date Received:', fmtDate(grn.received_date || grn.created_at)],
-      ['Department:', grn.lpo?.department?.name || 'N/A'],
+      ['Department:', grn.lpo?.department?.name || grn.lpo?.unit_name || 'N/A'],
     ].forEach(([label, val], i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
@@ -1077,7 +1077,7 @@ async function generateSupplierInvoice(invoice) {
       .text(`Invoice Date:   ${fmtDate(invoice.invoice_date)}`, col2X + 10, y + 22)
       .text(`Due Date:       ${fmtDate(invoice.due_date)}`, col2X + 10)
       .text(`LPO Reference:  ${invoice.lpo?.lpo_no || 'N/A'}`, col2X + 10)
-      .text(`Department:     ${invoice.lpo?.department?.name || 'N/A'}`, col2X + 10);
+      .text(`Department:     ${invoice.lpo?.department?.name || invoice.lpo?.unit_name || 'N/A'}`, col2X + 10);
     y += infoH + 14;
 
     const isPaid = invoice.status === 'PAID';

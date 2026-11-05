@@ -4,7 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
 const { spreadsheetUpload } = require('../middleware/upload');
 const {
-  getToTag, registerReceived, getAssets, getAssetSummary, getAssetOptions, getTagOptions, getAssetById, createAsset, updateAsset,
+  getAssetTypes, createAssetType, updateAssetType, deleteAssetType, getToTag, registerReceived, getAssets, getAssetSummary, getAssetOptions, getTagOptions, getAssetById, createAsset, updateAsset,
   calculateDepreciation, recordMaintenance, disposeAsset, deleteAsset,
   getLocations, createLocation, renameLocation, mergeLocation, deleteLocation,
 } = require('../controllers/assets.controller');
@@ -72,6 +72,56 @@ router.get('/options', ...manage, getAssetOptions);
  *         description: Tag prefixes with the next tag number for each
  */
 router.get('/tag-options', ...manage, getTagOptions);
+
+/**
+ * @swagger
+ * /api/assets/types:
+ *   get:
+ *     summary: The list of asset items (Computer monitor, Office chair...) with how many are in the register (Admin/Procurement)
+ *     tags: [Assets]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Asset items, including item types seen only in the register
+ *   post:
+ *     summary: Add an asset item to the list (Admin/Procurement)
+ *     tags: [Assets]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Added
+ */
+router.get('/types', ...manage, getAssetTypes);
+router.post('/types', ...manage, createAssetType);
+
+/**
+ * @swagger
+ * /api/assets/types/{id}:
+ *   patch:
+ *     summary: Change an asset item. Renaming also renames it on its assets (Admin/Procurement)
+ *     tags: [Assets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Saved
+ *   delete:
+ *     summary: Remove an asset item no asset uses (Admin/Procurement)
+ *     tags: [Assets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Removed
+ */
+router.patch('/types/:id', ...manage, updateAssetType);
+router.delete('/types/:id', ...manage, deleteAssetType);
 
 /**
  * @swagger

@@ -74,4 +74,36 @@ const nextStockCode = async () => {
   return `STK-${String(max + 1).padStart(4, '0')}`;
 };
 
-module.exports = { ITEM_TYPES, DEFAULT_UNITS, normalizeUnit, readLineKind, knownUnits, carryKind, nextStockCode, fail };
+// ── Who is asking: an academic department, or a non-academic unit typed in (Administration, Store...) ──
+const DEFAULT_UNITS_REQUESTING = ['Administration', "Principal's Office", 'Finance Office', 'Store', 'Library', 'Kitchen', 'Boarding'];
+
+const tidyUnit = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
+
+// Names already used for non-academic units (on requisitions and LPOs), plus the usual ones
+const requestingUnits = async () => {
+  const [a, b] = await Promise.all([
+    prisma.purchaseRequisition.findMany({ where: { unit_name: { not: null } }, distinct: ['unit_name'], select: { unit_name: true } }),
+    prisma.lPO.findMany({ where: { unit_name: { not: null } }, distinct: ['unit_name'], select: { unit_name: true } }),
+  ]);
+  const out = [];
+  [...a.map((r) => r.unit_name), ...b.map((r) => r.unit_name), ...DEFAULT_UNITS_REQUESTING].forEach((u) => {
+    if (u && !out.some((x) => x.toLowerCase() === u.toLowerCase())) out.push(u);
+  });
+  return out.sort((x, y) => x.localeCompare(y));
+};
+
+// { department_id, unit_name } as sent -> what to store. A typed name that is really an academic department,
+// or a unit already in use under a different spelling, is matched rather than duplicated.
+const resolveRequester = async ({ department_id, unit_name }) => {
+  if (department_id) return { department_id, unit_name: null };
+  const typed = tidyUnit(unit_name);
+  if (!typed) throw fail('Choose a department, or type the unit that needs the items (for example Administration or Store)');
+  const dept = await prisma.department.findFirst({ where: { name: { equals: typed, mode: 'insensitive' } } });
+  if (dept) return { department_id: dept.id, unit_name: null };
+  const known = (await requestingUnits()).find((u) => u.toLowerCase() === typed.toLowerCase());
+  // a new name is written with a capital letter on each word ("store" -> "Store"); ones typed in capitals stay
+  const titled = typed.split(' ').map((w) => (w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
+  return { department_id: null, unit_name: known || titled };
+};
+
+module.exports = { ITEM_TYPES, DEFAULT_UNITS, normalizeUnit, readLineKind, knownUnits, carryKind, nextStockCode, fail, requestingUnits, resolveRequester };
