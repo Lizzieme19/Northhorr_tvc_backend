@@ -150,13 +150,127 @@ const readWorkbook = (buffer) => {
   return { assetRows, stockRows, sheetsRead };
 };
 
+// ── Updating items that are already in the register ─────────────────────────
+// Off unless asked for. A workbook row is matched to an asset by its tag number; rows with no tag, or a tag shared
+// with another row, are matched by where they were imported from (and must still hold the same item). Only these
+// details can change, and a blank cell in the workbook never blanks anything in the register.
+
+const UPDATE_GROUPS = {
+  value: { label: 'Cost, date and depreciation rate', fields: ['purchase_cost', 'delivery_date', 'depreciation_rate'] },
+  location: { label: 'Location', fields: ['location_id', 'original_location_id'] },
+  condition: { label: 'Condition', fields: ['condition'] },
+  officer: { label: 'Responsible officer', fields: ['responsible_officer'] },
+  details: { label: 'Make, serial number, source of funds, PV number, replacement date', fields: ['make_model', 'serial_number', 'source_of_funds', 'pv_number', 'replacement_date'] },
+};
+const FIELD_LABELS = {
+  purchase_cost: 'Cost', delivery_date: 'Delivery date', depreciation_rate: 'Depreciation rate', location_id: 'Location', original_location_id: 'First placed',
+  condition: 'Condition', responsible_officer: 'Responsible officer', make_model: 'Make & model', serial_number: 'Serial number',
+  source_of_funds: 'Source of funds', pv_number: 'PV number', replacement_date: 'Replacement date',
+};
+const dayOf = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+
+const planUpdates = ({ assetRows, existingAssets, locationName, canonOf, opts }) => {
+  const groups = (opts.groups && opts.groups.length ? opts.groups : Object.keys(UPDATE_GROUPS)).filter((g) => UPDATE_GROUPS[g]);
+  const wanted = new Set(groups.flatMap((g) => UPDATE_GROUPS[g].fields));
+  const fillOnly = opts.fillOnly !== false;
+
+  const byCode = new Map(existingAssets.map((a) => [a.asset_code.toLowerCase(), a]));
+  const byRow = new Map(existingAssets.filter((a) => a.imported_from).map((a) => [a.imported_from, a]));
+  const tagOf = (r) => { const t = text(r.get('tag')); const s = text(r.get('serial')); return isTagLike(t) ? t : (isTagLike(s) ? s : null); };
+  const seen = new Map();
+  for (const r of assetRows) { const t = tagOf(r); if (t) seen.set(t.toLowerCase(), (seen.get(t.toLowerCase()) || 0) + 1); }
+
+  const items = [];
+  const conflicts = [];
+  let matched = 0;
+  const done = new Set();
+
+  for (const r of assetRows) {
+    const wbTag = tagOf(r);
+    const shared = wbTag && seen.get(wbTag.toLowerCase()) > 1;
+    const rowKey = `${r.sheet} row ${r.row}`;
+    const name = sentenceCase(text(r.get('description')));
+    let asset = null;
+    let via = null;
+    if (wbTag && !shared && byCode.has(wbTag.toLowerCase())) { asset = byCode.get(wbTag.toLowerCase()); via = 'tag'; }
+    else if (byRow.has(rowKey)) {
+      const cand = byRow.get(rowKey);
+      if (wbTag && !shared) {
+        if (String(cand.name || '').toLowerCase() !== name.toLowerCase()) continue; // a different item took over this row: the import adds it
+        conflicts.push({ sheet: r.sheet, row: r.row, tag: wbTag, name, message: `The tag ${wbTag} is not in the register, but this row was imported as ${cand.asset_code}. Left as it is. If the tag was wrong, correct it in the app.` });
+        continue;
+      }
+      if (String(cand.name || '').toLowerCase() !== name.toLowerCase()) {
+        conflicts.push({ sheet: r.sheet, row: r.row, tag: wbTag, name, message: `This row now holds "${name}", but it was imported as "${cand.name}" (${cand.asset_code}). Rows have moved, so it was left as it is.` });
+        continue;
+      }
+      asset = cand; via = 'row';
+    } else continue; // a new row: the import adds it
+    if (done.has(asset.id)) continue;
+    done.add(asset.id);
+    matched += 1;
+
+    const tagCol = text(r.get('tag'));
+    const serialCol = text(r.get('serial'));
+    const cost = num(r.get('cost'));
+    const wb = {
+      purchase_cost: cost !== null && cost > 0 ? cost : null,
+      delivery_date: normDate(clean(r.get('delivery_date'))),
+      depreciation_rate: num(r.get('rate')),
+      location_id: canonOf(r.get('current_location')),
+      original_location_id: canonOf(r.get('original_location')),
+      condition: normCondition(r.get('condition')),
+      responsible_officer: text(r.get('responsible_officer')),
+      make_model: text(r.get('make_model')),
+      serial_number: serialCol && !isTagLike(serialCol) ? serialCol : (tagCol && !isTagLike(tagCol) ? tagCol : null),
+      source_of_funds: text(r.get('source_of_funds')),
+      pv_number: text(r.get('pv_number')),
+      replacement_date: normDate(clean(r.get('replacement_date'))),
+    };
+    const kind = {
+      purchase_cost: { cur: asset.purchase_cost, same: (a, b) => Math.abs(a - b) < 0.005 },
+      depreciation_rate: { cur: asset.depreciation_rate, same: (a, b) => Math.abs(a - b) < 0.0005 },
+      delivery_date: { cur: asset.delivery_date, same: (a, b) => dayOf(a) === dayOf(b), show: dayOf },
+      replacement_date: { cur: asset.replacement_date, same: (a, b) => dayOf(a) === dayOf(b), show: dayOf },
+      location_id: { cur: asset.location_id ? locationName.get(asset.location_id) : null, same: (a, b) => locKey(a) === locKey(b) },
+      original_location_id: { cur: asset.original_location_id ? locationName.get(asset.original_location_id) : null, same: (a, b) => locKey(a) === locKey(b) },
+    };
+    const changes = [];
+    const data = {};
+    for (const field of wanted) {
+      const to = wb[field];
+      if (to === null || to === undefined) continue; // a blank cell never blanks the register
+      const k = kind[field] || { cur: asset[field], same: (a, b) => String(a).toLowerCase() === String(b).toLowerCase() };
+      const from = k.cur === undefined || k.cur === '' ? null : k.cur;
+      const empty = from === null;
+      if (!empty && (fillOnly || k.same(from, to))) continue;
+      if (empty || !k.same(from, to)) {
+        const show = k.show || ((v) => v);
+        changes.push({ field, label: FIELD_LABELS[field], from: empty ? null : show(from), to: show(to), filled: empty });
+        data[field] = to;
+      }
+    }
+    if (changes.length === 0) continue;
+    // a cost with a delivery date also dates the purchase, as on import
+    const finalCost = data.purchase_cost ?? asset.purchase_cost;
+    const finalDelivery = data.delivery_date ?? asset.delivery_date;
+    if (finalCost && finalDelivery && !asset.purchase_date && (data.purchase_cost !== undefined || data.delivery_date !== undefined)) data.purchase_date = finalDelivery;
+    items.push({ id: asset.id, tag: asset.asset_code, name: asset.name, sheet: r.sheet, row: r.row, via, changes, data });
+  }
+  return { groups, fill_only: fillOnly, matched, unchanged: matched - items.length, items, conflicts };
+};
+
 // ── Check everything against the register as it is now ───────────────────────
 
-const analyzeWorkbook = async (buffer) => {
+const analyzeWorkbook = async (buffer, opts = {}) => {
   const { assetRows, stockRows, sheetsRead } = readWorkbook(buffer);
 
   const [existingAssets, prefixMax, existingLocations, existingStock, stockCodes] = await Promise.all([
-    prisma.asset.findMany({ select: { asset_code: true, imported_from: true } }),
+    prisma.asset.findMany({
+      select: opts.updateExisting
+        ? { id: true, asset_code: true, name: true, imported_from: true, purchase_cost: true, purchase_date: true, delivery_date: true, depreciation_rate: true, location_id: true, original_location_id: true, condition: true, responsible_officer: true, make_model: true, serial_number: true, source_of_funds: true, pv_number: true, replacement_date: true }
+        : { asset_code: true, name: true, imported_from: true },
+    }),
     prisma.asset.groupBy({ by: ['tag_prefix'], where: { tag_prefix: { not: null } }, _max: { tag_seq: true } }),
     prisma.assetLocation.findMany({ select: { id: true, name: true } }),
     prisma.inventoryItem.findMany({ select: { name: true, unit_of_measure: true } }),
@@ -164,7 +278,7 @@ const analyzeWorkbook = async (buffer) => {
   ]);
   const haveTag = new Set(existingAssets.map((a) => a.asset_code.toLowerCase()));
   // rows already imported from this workbook, even if their tag was changed on import
-  const haveSource = new Set(existingAssets.map((a) => a.imported_from).filter(Boolean));
+  const haveSource = new Map(existingAssets.filter((a) => a.imported_from).map((a) => [a.imported_from, a]));
   const maxSeq = new Map(prefixMax.map((p) => [p.tag_prefix, p._max.tag_seq || 0]));
   const haveLocation = new Map(existingLocations.map((l) => [locKey(l.name), l.name]));
 
@@ -188,14 +302,31 @@ const analyzeWorkbook = async (buffer) => {
     if (t.prefix && t.seq > (maxSeq.get(t.prefix) || 0)) maxSeq.set(t.prefix, t.seq);
   }
 
+  // how many rows carry each tag, so a tag shared by two rows is not taken to identify either
+  const tagCount = new Map();
+  for (const r of assetRows) {
+    const t = text(r.get('tag')); const v = text(r.get('serial'));
+    const x = isTagLike(t) ? t : (isTagLike(v) ? v : null);
+    if (x) tagCount.set(x.toLowerCase(), (tagCount.get(x.toLowerCase()) || 0) + 1);
+  }
+
   const out = [];
   for (const r of assetRows) {
     const description = text(r.get('description'));
-    // imported before: leave it alone, so running the same file again never adds copies
-    if (haveSource.has(`${r.sheet} row ${r.row}`)) {
+    // A row imported before is recognised by its tag when it has its own. Rows with no usable tag (none, or one shared
+    // with another row) are recognised by where they were imported from, as long as they still hold the same item.
+    const rowKey = `${r.sheet} row ${r.row}`;
+    const before = haveSource.get(rowKey);
+    const ownTag = (() => { const t = text(r.get('tag')); const v = text(r.get('serial')); const x = isTagLike(t) ? t : (isTagLike(v) ? v : null); return x && tagCount.get(x.toLowerCase()) === 1 ? x : null; })();
+    const skipped = (why) => {
       const n = sentenceCase(description);
-      out.push({ sheet: r.sheet, row: r.row, status: 'exists', tag: null, name: n, category: n, asset_class: r.asset_class, location: null, original_location: null, attention: null, reclassified: null, generated: false, notes: [], warnings: [], data: { purchase_cost: null }, _location: null, _original_location: null });
-      continue;
+      out.push({ sheet: r.sheet, row: r.row, status: 'exists', tag: null, name: n, category: n, asset_class: r.asset_class, location: null, original_location: null, attention: null, reclassified: null, generated: false, notes: [], warnings: why ? [why] : [], data: { purchase_cost: null }, _location: null, _original_location: null });
+    };
+    if (before) {
+      const same = String(before.name || '').toLowerCase() === sentenceCase(description).toLowerCase();
+      if (!ownTag) { skipped(same ? null : `This row now holds "${sentenceCase(description)}", but it was imported as "${before.name}" (${before.asset_code}). Rows have moved, so it was left out to avoid a copy.`); continue; }
+      if (!haveTag.has(ownTag.toLowerCase()) && same) { skipped(`The tag ${ownTag} is not in the register, but this row was imported as ${before.asset_code}. Left as it is: correct the tag in the app if it was wrong.`); continue; }
+      // otherwise the tag identifies it: already there, or a new item that took over this row number
     }
     const tagCol = text(r.get('tag'));
     const serialCol = text(r.get('serial'));
@@ -277,6 +408,11 @@ const analyzeWorkbook = async (buffer) => {
       _location: loc,
       _original_location: origLoc,
     });
+    if (exists) {
+      // already in the register: nothing is imported, so nothing is flagged
+      const last = out[out.length - 1];
+      last.warnings = []; last.notes = []; last.attention = null; last.reclassified = null; last.generated = false;
+    }
   }
 
   // Stock lines go to Inventory
@@ -299,7 +435,11 @@ const analyzeWorkbook = async (buffer) => {
     };
   });
 
-  return { assets: out, stock, sheetsRead, locationMap: canon, existingLocationNames: new Set(existingLocations.map((l) => locKey(l.name))) };
+  const updates = opts.updateExisting
+    ? planUpdates({ assetRows, existingAssets, locationName: new Map(existingLocations.map((l) => [l.id, l.name])), canonOf, opts })
+    : null;
+
+  return { assets: out, stock, sheetsRead, updates, locationMap: canon, existingLocationNames: new Set(existingLocations.map((l) => locKey(l.name))) };
 };
 
 function key(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
@@ -331,6 +471,17 @@ const summarizeAnalysis = (a) => {
       tags_generated: ready.filter((r) => r.generated).length,
       moved_to_other_register: ready.filter((r) => r.reclassified).length,
     },
+    updates: a.updates ? {
+      enabled: true,
+      fill_only: a.updates.fill_only,
+      groups: a.updates.groups.map((g) => ({ key: g, label: UPDATE_GROUPS[g].label })),
+      matched: a.updates.matched,
+      unchanged: a.updates.unchanged,
+      to_change: a.updates.items.length,
+      fields: a.updates.items.reduce((n, u) => n + u.changes.length, 0),
+      by_field: Object.entries(a.updates.items.reduce((m, u) => { u.changes.forEach((c) => { m[c.label] = (m[c.label] || 0) + 1; }); return m; }, {})).sort((x, y) => y[1] - x[1]).map(([label, count]) => ({ label, count })),
+      conflicts: a.updates.conflicts.length,
+    } : null,
     stock: { total: a.stock.length, ready: a.stock.filter((s) => s.status === 'ready').length, already_in_inventory: a.stock.filter((s) => s.status === 'exists').length },
     sheets: a.sheetsRead,
     locations: [...locations.entries()].sort((x, y) => y[1] - x[1]).map(([name, count]) => ({
@@ -348,17 +499,20 @@ const previewRows = (a, limit = 300) => {
     flagged: flagged.slice(0, limit).map(strip),
     flagged_total: flagged.length,
     sample: plain.slice(0, 15).map(strip),
+    update_items: a.updates ? a.updates.items.slice(0, 300).map(({ data, ...rest }) => rest) : [],
+    update_conflicts: a.updates ? a.updates.conflicts.slice(0, 100) : [],
   };
 };
 
 // ── Run the import ───────────────────────────────────────────────────────────
 
 const importWorkbook = async (a, { includeStock = true, userId } = {}) => {
-  const result = { assets_created: 0, locations_created: 0, stock_created: 0, errors: [] };
+  const result = { assets_created: 0, assets_updated: 0, fields_changed: 0, locations_created: 0, stock_created: 0, errors: [] };
 
   // locations first, so every asset can point at one
   const wanted = new Set();
   for (const r of a.assets) if (r.status === 'ready') { if (r._location) wanted.add(r._location); if (r._original_location) wanted.add(r._original_location); }
+  for (const u of a.updates?.items || []) for (const c of u.changes) if ((c.field === 'location_id' || c.field === 'original_location_id') && c.to) wanted.add(c.to);
   const have = await prisma.assetLocation.findMany();
   const byKey = new Map(have.map((l) => [locKey(l.name), l]));
   for (const name of wanted) {
@@ -385,6 +539,20 @@ const importWorkbook = async (a, { includeStock = true, userId } = {}) => {
     }
   }
 
+  // update items already in the register (only when asked for)
+  for (const u of a.updates?.items || []) {
+    try {
+      const data = { ...u.data };
+      if (data.location_id) data.location_id = byKey.get(locKey(data.location_id)).id;
+      if (data.original_location_id) data.original_location_id = byKey.get(locKey(data.original_location_id)).id;
+      await prisma.asset.update({ where: { id: u.id }, data });
+      result.assets_updated += 1;
+      result.fields_changed += u.changes.length;
+    } catch (err) {
+      result.errors.push({ rows: `${u.sheet} row ${u.row}`, error: `Could not update ${u.tag}` });
+    }
+  }
+
   if (includeStock) {
     for (const s of a.stock.filter((x) => x.status === 'ready')) {
       try {
@@ -403,4 +571,4 @@ const importWorkbook = async (a, { includeStock = true, userId } = {}) => {
   return result;
 };
 
-module.exports = { analyzeWorkbook, summarizeAnalysis, previewRows, importWorkbook, readWorkbook, MAX_ROWS };
+module.exports = { UPDATE_GROUPS, analyzeWorkbook, summarizeAnalysis, previewRows, importWorkbook, readWorkbook, MAX_ROWS };
