@@ -151,50 +151,55 @@ const departments = [
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Create admin user
-  const adminPassword = await bcrypt.hash('Admin@NTVC2026', 12);
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@ntvc.ac.ke' },
-    update: {},
-    create: { email: 'admin@ntvc.ac.ke', password: adminPassword, role: 'ADMIN' },
-  });
-  console.log(`✅ Admin user: admin@ntvc.ac.ke / Admin@NTVC2026`);
+  // Demo accounts with well-known passwords: for a local development database only.
+  // They are NOT created unless SEED_DEMO_USERS=true (this repository is public, so never use them in production).
+  if (process.env.SEED_DEMO_USERS === 'true') {
+    // Create admin user
+    const adminPassword = await bcrypt.hash('Admin@NTVC2026', 12);
+    const admin = await prisma.user.upsert({
+      where: { email: 'admin@ntvc.ac.ke' },
+      update: {},
+      create: { email: 'admin@ntvc.ac.ke', password: adminPassword, role: 'ADMIN' },
+    });
+    console.log(`✅ Admin user: admin@ntvc.ac.ke / Admin@NTVC2026`);
 
-  // Create finance user
-  const financePassword = await bcrypt.hash('Finance@NTVC2026', 12);
-  await prisma.user.upsert({
-    where: { email: 'finance@ntvc.ac.ke' },
-    update: {},
-    create: { email: 'finance@ntvc.ac.ke', password: financePassword, role: 'FINANCE' },
-  });
-  console.log(`✅ Finance user: finance@ntvc.ac.ke / Finance@NTVC2026`);
+    // Create finance user
+    const financePassword = await bcrypt.hash('Finance@NTVC2026', 12);
+    await prisma.user.upsert({
+      where: { email: 'finance@ntvc.ac.ke' },
+      update: {},
+      create: { email: 'finance@ntvc.ac.ke', password: financePassword, role: 'FINANCE' },
+    });
+    console.log(`✅ Finance user: finance@ntvc.ac.ke / Finance@NTVC2026`);
 
-  // Create HR user
-  const hrPassword = await bcrypt.hash('HR@NTVC2026', 12);
-  await prisma.user.upsert({
-    where: { email: 'hr@ntvc.ac.ke' },
-    update: {},
-    create: { email: 'hr@ntvc.ac.ke', password: hrPassword, role: 'HR' },
-  });
-  console.log(`✅ HR user: hr@ntvc.ac.ke / HR@NTVC2026`);
+    // Create HR user
+    const hrPassword = await bcrypt.hash('HR@NTVC2026', 12);
+    await prisma.user.upsert({
+      where: { email: 'hr@ntvc.ac.ke' },
+      update: {},
+      create: { email: 'hr@ntvc.ac.ke', password: hrPassword, role: 'HR' },
+    });
+    console.log(`✅ HR user: hr@ntvc.ac.ke / HR@NTVC2026`);
 
-  // Create procurement user
-  const procurementPassword = await bcrypt.hash('Procurement@NTVC2026', 12);
-  await prisma.user.upsert({
-    where: { email: 'procurement@ntvc.ac.ke' },
-    update: {},
-    create: { email: 'procurement@ntvc.ac.ke', password: procurementPassword, role: 'PROCUREMENT' },
-  });
-  console.log(`✅ Procurement user: procurement@ntvc.ac.ke / Procurement@NTVC2026`);
+    // Create procurement user
+    const procurementPassword = await bcrypt.hash('Procurement@NTVC2026', 12);
+    await prisma.user.upsert({
+      where: { email: 'procurement@ntvc.ac.ke' },
+      update: {},
+      create: { email: 'procurement@ntvc.ac.ke', password: procurementPassword, role: 'PROCUREMENT' },
+    });
+    console.log(`✅ Procurement user: procurement@ntvc.ac.ke / Procurement@NTVC2026`);
 
-  // Create staff user
-  const staffPassword = await bcrypt.hash('Staff@NTVC2026', 12);
-  await prisma.user.upsert({
-    where: { email: 'staff@ntvc.ac.ke' },
-    update: {},
-    create: { email: 'staff@ntvc.ac.ke', password: staffPassword, role: 'STAFF' },
-  });
-  console.log(`✅ Staff user: staff@ntvc.ac.ke / Staff@NTVC2026`);
+    // Create staff user
+    const staffPassword = await bcrypt.hash('Staff@NTVC2026', 12);
+    await prisma.user.upsert({
+      where: { email: 'staff@ntvc.ac.ke' },
+      update: {},
+      create: { email: 'staff@ntvc.ac.ke', password: staffPassword, role: 'STAFF' },
+    });
+    console.log(`✅ Staff user: staff@ntvc.ac.ke / Staff@NTVC2026`);
+
+  }
 
   // Seed departments and courses
   for (const dept of departments) {
@@ -221,11 +226,13 @@ async function main() {
   }
 
   console.log('\n🎉 Seeding complete!');
-  console.log('Admin credentials:       admin@ntvc.ac.ke / Admin@NTVC2026');
-  console.log('Finance credentials:     finance@ntvc.ac.ke / Finance@NTVC2026');
-  console.log('HR credentials:          hr@ntvc.ac.ke / HR@NTVC2026');
-  console.log('Procurement credentials: procurement@ntvc.ac.ke / Procurement@NTVC2026');
-  console.log('Staff credentials:       staff@ntvc.ac.ke / Staff@NTVC2026');
+  if (process.env.SEED_DEMO_USERS === 'true') {
+    console.log('Admin credentials:       admin@ntvc.ac.ke / Admin@NTVC2026');
+    console.log('Finance credentials:     finance@ntvc.ac.ke / Finance@NTVC2026');
+    console.log('HR credentials:          hr@ntvc.ac.ke / HR@NTVC2026');
+    console.log('Procurement credentials: procurement@ntvc.ac.ke / Procurement@NTVC2026');
+    console.log('Staff credentials:       staff@ntvc.ac.ke / Staff@NTVC2026');
+  }
 
   // Seed fee types
   const feeTypes = [

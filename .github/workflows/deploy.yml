@@ -20,9 +20,11 @@ jobs:
           host: ${{ secrets.DROPLET_IP }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          # stop at the first failing command, so a failed build never restarts the old container
+          script_stop: true
           script: |
             cd /opt/northhorr
             git pull origin main
-            docker-compose build
-            docker-compose up -d --force-recreate
-            docker-compose exec -T backend npx prisma db push --skip-generate
+            docker compose build
+            docker compose up -d --force-recreate
+            docker compose exec -T backend npx prisma db push --skip-generate

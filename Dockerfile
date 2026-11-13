@@ -1,5 +1,6 @@
-# Use Node.js 18 LTS with Debian (not Alpine) for better Prisma compatibility
-FROM node:18-bullseye-slim
+# Node.js 20 on Debian 12 (not Alpine) for better Prisma compatibility.
+# (Debian 11 "bullseye" is end-of-life and its package servers no longer have the files, so it cannot be built.)
+FROM node:20-bookworm-slim
 
 # Set working directory
 WORKDIR /app
@@ -7,7 +8,6 @@ WORKDIR /app
 # Install system dependencies for Prisma and Canvas (minimal)
 RUN apt-get update && apt-get install -y \
     openssl \
-    libssl1.1 \
     ca-certificates \
     libcairo2 \
     libjpeg62-turbo \
