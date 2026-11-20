@@ -17,17 +17,8 @@ const studentIncludes = {
   department: { select: { id: true, name: true, slug: true } },
   current_term: { select: { id: true, name: true, academic_year: true } },
   student_type: { select: { id: true, name: true } },
-  application: {
-    select: {
-      id: true, application_no: true, type: true, surname: true, other_names: true,
-      gender: true, date_of_birth: true, phone: true, address: true,
-      kcpe_marks: true, kcse_grade: true, status: true,
-      parent_names: true, parent_relationship: true, parent_phone: true, parent_email: true,
-      father_present: true, father_name: true, father_phone: true, father_email: true, father_occupation: true,
-      mother_present: true, mother_name: true, mother_phone: true, mother_email: true, mother_occupation: true,
-      emergency_person: true, emergency_phone: true,
-    },
-  },
+  // the whole application record, so nothing the student gave (or the admin added) is left out when a student is pulled
+  application: true,
   admission_letter: { select: { id: true, generated_at: true } },
   documents: { select: { document_type: true, generated_at: true } },
   fee_records: true,
@@ -151,7 +142,18 @@ const updateStudent = async (req, res) => {
           father_present, father_name, father_phone, father_email, father_occupation,
           mother_present, mother_name, mother_phone, mother_email, mother_occupation,
           parent_names, parent_relationship, parent_phone, parent_email,
-          emergency_person, emergency_phone } = req.body;
+          emergency_person, emergency_phone,
+          // Personal details (kept on the application record)
+          surname, other_names, gender, date_of_birth, nationality, religion, id_number, birth_cert_no,
+          phone, address, medical_conditions, allergies, father_deceased, mother_deceased, has_disability, disability } = req.body;
+
+    const truthy = (v) => v === true || v === 'true';
+    const clean = (v) => { const t = String(v ?? '').trim(); return t === '' ? null : t; };
+    let dob;
+    if (date_of_birth) {
+      dob = new Date(date_of_birth);
+      if (isNaN(dob.getTime())) return res.status(400).json({ error: 'Date of birth is not a valid date' });
+    }
 
     const student = await prisma.student.findUnique({
       where: { id: req.params.id },
@@ -159,6 +161,18 @@ const updateStudent = async (req, res) => {
     });
 
     if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    // Kenyan mobile numbers only, kept as 07XXXXXXXX / 01XXXXXXXX. A number left as it already is (even an old
+    // one in another format) is not rejected, so the rest of the form can still be saved.
+    const goodPhones = {};
+    const app0 = student.application || {};
+    for (const [k, v] of Object.entries({ phone, emergency_phone, father_phone, mother_phone, parent_phone })) {
+      if (v === undefined || v === null || String(v).trim() === '') continue;
+      if (String(v).trim() === String(app0[k] ?? '').trim()) { goodPhones[k] = String(v).trim(); continue; }
+      const n = normalizeKenyaPhone(v);
+      if (!n) return res.status(400).json({ error: `${k.replace(/_/g, ' ')}: ${PHONE_HELP}`, fields: { [k]: PHONE_HELP } });
+      goodPhones[k] = n;
+    }
 
     // Department heads can only update students in their department
     if (req.user.role === 'DEPT_HEAD') {
@@ -208,12 +222,33 @@ const updateStudent = async (req, res) => {
           ...(parent_phone !== undefined && { parent_phone }),
           ...(parent_email !== undefined && { parent_email }),
           ...(emergency_person !== undefined && { emergency_person }),
-          ...(emergency_phone !== undefined && { emergency_phone }),
+          ...(goodPhones.emergency_phone && { emergency_phone: goodPhones.emergency_phone }),
+          // phones that were sent empty are cleared; ones that were sent are the checked, tidied number
+          ...(father_phone !== undefined && { father_phone: goodPhones.father_phone || null }),
+          ...(mother_phone !== undefined && { mother_phone: goodPhones.mother_phone || null }),
+          ...(parent_phone !== undefined && { parent_phone: goodPhones.parent_phone || null }),
+          // personal details
+          ...(surname !== undefined && clean(surname) && { surname: clean(surname) }),
+          ...(other_names !== undefined && { other_names: String(other_names ?? '').trim() }),
+          ...(gender !== undefined && clean(gender) && { gender: clean(gender) }),
+          ...(dob && { date_of_birth: dob }),
+          ...(nationality !== undefined && clean(nationality) && { nationality: clean(nationality) }),
+          ...(religion !== undefined && { religion: clean(religion) }),
+          ...(id_number !== undefined && { id_number: clean(id_number) }),
+          ...(birth_cert_no !== undefined && { birth_cert_no: clean(birth_cert_no) }),
+          ...(goodPhones.phone && { phone: goodPhones.phone }),
+          ...(address !== undefined && { address: clean(address) }),
+          ...(medical_conditions !== undefined && { medical_conditions: clean(medical_conditions) }),
+          ...(allergies !== undefined && { allergies: clean(allergies) }),
+          ...(father_deceased !== undefined && { father_deceased: truthy(father_deceased) }),
+          ...(mother_deceased !== undefined && { mother_deceased: truthy(mother_deceased) }),
+          ...(has_disability !== undefined && { has_disability: truthy(has_disability), disability: truthy(has_disability) ? clean(disability) || student.application.disability : null }),
         },
       });
     }
 
-    res.json(forRole(updated, req.user.role));
+    const fresh = await prisma.student.findUnique({ where: { id: req.params.id }, include: studentIncludes });
+    res.json(forRole(fresh || updated, req.user.role));
   } catch (err) {
     console.error('Update student error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -500,6 +535,8 @@ const updateMyProfile = async (req, res) => {
       parent_names, parent_phone, parent_email, parent_relationship,
       // Deceased parents and disability
       father_deceased, mother_deceased, has_disability, disability,
+      // Religion: filled in by the student after admission, so it is open at any time
+      religion,
       // Interests and sports (chosen from the lists the admin keeps; can be changed at any time)
       interests, sports,
     } = req.body;
@@ -584,6 +621,13 @@ const updateMyProfile = async (req, res) => {
     }
 
     // ── Update Student table ─────────────────────────────────────────────
+    // ── Religion is not window-gated: it is no longer asked on the application form ──
+    if (religion !== undefined && student.application) {
+      const r = String(religion ?? '').trim();
+      if (r.length > 60) return res.status(400).json({ error: 'Religion is too long' });
+      await prisma.application.update({ where: { id: student.application.id }, data: { religion: r || null } });
+    }
+
     const updated = await prisma.student.update({
       where: { user_id: req.user.id },
       data: {

@@ -148,7 +148,6 @@ const submitApplication = async (req, res) => {
         gender: body.gender,
         date_of_birth: new Date(body.date_of_birth),
         nationality: body.nationality || 'Kenyan',
-        religion: body.religion || null,
         id_number: body.id_number || null,
         birth_cert_no: body.birth_cert_no || null,
         email: body.email,
