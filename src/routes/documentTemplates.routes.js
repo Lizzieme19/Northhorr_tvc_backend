@@ -7,6 +7,9 @@ const {
   getTemplates,
   getTemplateByType,
   updateTemplate,
+  getStyle,
+  updateStyle,
+  previewTemplate,
 } = require('../controllers/documentTemplates.controller');
 
 /**
@@ -41,6 +44,10 @@ router.get('/', authenticate, requireRoles('ADMIN'), getTemplates);
  *       200:
  *         description: Document template
  */
+router.get('/style', authenticate, requireRoles('ADMIN'), getStyle);
+router.patch('/style', authenticate, requireRoles('ADMIN'), updateStyle);
+router.post('/:type/preview', authenticate, requireRoles('ADMIN'), previewTemplate);
+
 router.get('/:type', authenticate, requireRoles('ADMIN'), getTemplateByType);
 
 /**
@@ -78,7 +85,9 @@ router.get('/:type', authenticate, requireRoles('ADMIN'), getTemplateByType);
  */
 router.patch('/:type', authenticate, requireRoles('ADMIN'), upload.fields([
   { name: 'ministry_logo', maxCount: 1 },
-  { name: 'college_logo', maxCount: 1 }
+  { name: 'college_logo', maxCount: 1 },
+  { name: 'signature', maxCount: 1 },
+  { name: 'stamp', maxCount: 1 }
 ]), updateTemplate);
 
 module.exports = router;

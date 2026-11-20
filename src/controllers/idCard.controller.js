@@ -1,4 +1,4 @@
-const { generateIDCard } = require('../utils/idCardGenerator');
+const { generateIDCard, generateSampleIDCard, loadDesign, cleanDesign, DEFAULT_DESIGN } = require('../utils/idCardGenerator');
 const prisma = require('../config/db');
 
 /**
@@ -145,7 +145,51 @@ const updateIDCardExpiry = async (req, res) => {
   }
 };
 
+// GET /api/id-card/design - the colours and pattern of the student ID card
+const getDesign = async (req, res) => {
+  try {
+    res.json({ design: await loadDesign(), defaults: DEFAULT_DESIGN });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Could not load the ID card design' });
+  }
+};
+
+// PATCH /api/id-card/design - applies to every card made from now on
+const updateDesign = async (req, res) => {
+  try {
+    const clean = cleanDesign(req.body || {});
+    if (Object.keys(clean).length === 0) return res.status(400).json({ error: 'Nothing to save' });
+    const saved = { ...(await loadDesign()), ...clean };
+    await prisma.systemSetting.upsert({
+      where: { key: 'id_card_design' },
+      update: { value: JSON.stringify(saved) },
+      create: { key: 'id_card_design', value: JSON.stringify(saved) },
+    });
+    res.json({ design: saved, message: 'ID card design saved. Cards made from now on use it.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Could not save the ID card design' });
+  }
+};
+
+// POST /api/id-card/design/preview - a sample card with the design on screen (nothing is saved)
+const previewDesign = async (req, res) => {
+  try {
+    const png = await generateSampleIDCard(req.body || {});
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(png);
+  } catch (err) {
+    console.error('ID card preview error:', err);
+    res.status(500).json({ error: 'Could not make the preview' });
+  }
+};
+
 module.exports = {
+  getDesign,
+  updateDesign,
+  previewDesign,
   getStudentIDCard,
   getMyIDCard,
   updateIDCardExpiry,

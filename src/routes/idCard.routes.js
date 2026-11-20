@@ -6,6 +6,9 @@ const {
   getStudentIDCard,
   getMyIDCard,
   updateIDCardExpiry,
+  getDesign,
+  updateDesign,
+  previewDesign,
 } = require('../controllers/idCard.controller');
 
 /**
@@ -27,6 +30,10 @@ const {
  *       400:
  *         description: Student missing profile picture or not active
  */
+router.get('/id-card/design', authenticate, requireRoles('ADMIN'), getDesign);
+router.patch('/id-card/design', authenticate, requireRoles('ADMIN'), updateDesign);
+router.post('/id-card/design/preview', authenticate, requireRoles('ADMIN'), previewDesign);
+
 router.get('/students/me/id-card', authenticate, requireRoles('STUDENT'), getMyIDCard);
 
 /**

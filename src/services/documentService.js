@@ -3,6 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const prisma = require('../config/db');
+const { AsyncLocalStorage } = require('async_hooks');
+
+// A preview renders a document with edits that have not been saved yet: they are supplied through this store
+// and read by getTemplate() / loadStyle() below, so the generators need no extra parameters.
+const overrides = new AsyncLocalStorage();
 
 // Asset paths
 const MINISTRY_LOGO = path.join(__dirname, '../../public/Ministry.png');
@@ -21,6 +26,54 @@ const BG_YELLOW = '#FFFBEB';
 // ─────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────
+
+// LOOK OF EVERY DOCUMENT (letterhead, footer, colour, typeface) - edited by the admin under Doc Templates.
+// The defaults are what the documents have always shown, so nothing changes until someone edits them.
+
+const DEFAULT_STYLE = {
+  ministry_line: 'MINISTRY OF EDUCATION — STATE DEPARTMENT FOR VOCATIONAL & TECHNICAL TRAINING',
+  college_name: 'NORTH HORR TECHNICAL AND VOCATIONAL COLLEGE',
+  contact_line: 'P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 721 998 512  |  northhorrtvc@gmail.com  |  www.northhorrtvc.ac.ke',
+  extra_line: '',
+  accent: '#1F6F4A',
+  font: 'Helvetica',
+  show_ministry_logo: true,
+  show_college_logo: true,
+  show_footer: true,
+  footer_text: 'NTVC is accredited by TVETA & KNQA  |  www.northhorrtvc.ac.ke  |  northhorrtvc@gmail.com',
+};
+const FONT_FAMILIES = {
+  Helvetica: { n: 'Helvetica', b: 'Helvetica-Bold', i: 'Helvetica-Oblique' },
+  'Times-Roman': { n: 'Times-Roman', b: 'Times-Bold', i: 'Times-Italic' },
+  Courier: { n: 'Courier', b: 'Courier-Bold', i: 'Courier-Oblique' },
+};
+
+const cleanStyle = (v = {}) => {
+  const out = {};
+  for (const k of ['ministry_line', 'college_name', 'contact_line', 'extra_line', 'footer_text']) if (typeof v[k] === 'string') out[k] = v[k].slice(0, 300);
+  if (typeof v.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(v.accent)) out.accent = v.accent;
+  if (FONT_FAMILIES[v.font]) out.font = v.font;
+  for (const k of ['show_ministry_logo', 'show_college_logo', 'show_footer']) if (typeof v[k] === 'boolean') out[k] = v[k];
+  return out;
+};
+
+async function loadStyle() {
+  const o = overrides.getStore();
+  if (o?.style) return { ...DEFAULT_STYLE, ...cleanStyle(o.style) };
+  let saved = {};
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: 'document_style' } });
+    if (row) saved = cleanStyle(JSON.parse(row.value));
+  } catch (e) { /* use the defaults */ }
+  return { ...DEFAULT_STYLE, ...saved };
+}
+
+// The saved template of a document type, or the unsaved one being previewed
+async function getTemplate(type) {
+  const o = overrides.getStore();
+  if (o?.template && o.template.document_type === type) return o.template;
+  return prisma.documentTemplate.findUnique({ where: { document_type: type } });
+}
 
 async function fetchImageBuffer(url) {
   if (!url) return null;
@@ -43,7 +96,22 @@ async function fetchImageBuffer(url) {
 function buildPDF(drawFn, options = {}) {
   return new Promise(async (resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 56, ...options });
+    doc._style = await loadStyle();
+    // the chosen typeface and accent colour apply to every document without touching each one's layout
+    const family = FONT_FAMILIES[doc._style.font] || FONT_FAMILIES.Helvetica;
+    const origFont = doc.font.bind(doc);
+    doc.font = (name, ...rest) => {
+      if (typeof name === 'string' && name.startsWith('Helvetica')) name = name.includes('Bold') ? family.b : name.includes('Oblique') ? family.i : family.n;
+      return origFont(name, ...rest);
+    };
+    const swap = (c) => (typeof c === 'string' && c.toUpperCase() === GREEN.toUpperCase() ? doc._style.accent : c);
+    const origFill = doc.fillColor.bind(doc);
+    const origStroke = doc.strokeColor.bind(doc);
+    doc.fillColor = (c, ...rest) => origFill(swap(c), ...rest);
+    doc.strokeColor = (c, ...rest) => origStroke(swap(c), ...rest);
+    doc.font('Helvetica');
     const chunks = [];
+
     doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
@@ -62,52 +130,87 @@ function buildPDF(drawFn, options = {}) {
 // ─────────────────────────────────────────────────────────
 
 async function drawHeader(doc, subtitle = '', customLogos = {}) {
+  const st = doc._style || DEFAULT_STYLE;
   const pageLeft = doc.page.margins.left;
   const pageRight = doc.page.width - doc.page.margins.right;
   const logoSize = 60;
 
-  let ministryBuffer = customLogos.ministry;
-  if (!ministryBuffer && fs.existsSync(MINISTRY_LOGO)) {
-    ministryBuffer = MINISTRY_LOGO;
+  if (st.show_ministry_logo !== false) {
+    let ministryBuffer = customLogos.ministry;
+    if (!ministryBuffer && fs.existsSync(MINISTRY_LOGO)) ministryBuffer = MINISTRY_LOGO;
+    if (ministryBuffer) {
+      try { doc.image(ministryBuffer, pageLeft, 40, { width: logoSize, height: logoSize }); } catch(e){}
+    }
   }
-  if (ministryBuffer) {
-    try { doc.image(ministryBuffer, pageLeft, 40, { width: logoSize, height: logoSize }); } catch(e){}
-  }
-
-  let collegeBuffer = customLogos.college;
-  if (!collegeBuffer && fs.existsSync(COLLEGE_LOGO)) {
-    collegeBuffer = COLLEGE_LOGO;
-  }
-  if (collegeBuffer) {
-    try { doc.image(collegeBuffer, pageRight - logoSize, 40, { width: logoSize, height: logoSize }); } catch(e){}
+  if (st.show_college_logo !== false) {
+    let collegeBuffer = customLogos.college;
+    if (!collegeBuffer && fs.existsSync(COLLEGE_LOGO)) collegeBuffer = COLLEGE_LOGO;
+    if (collegeBuffer) {
+      try { doc.image(collegeBuffer, pageRight - logoSize, 40, { width: logoSize, height: logoSize }); } catch(e){}
+    }
   }
 
   const textLeft = pageLeft + logoSize + 8;
   const textWidth = pageRight - pageLeft - logoSize * 2 - 16;
-  doc
-    .fillColor('#555').fontSize(7.5).font('Helvetica')
-    .text('MINISTRY OF EDUCATION — STATE DEPARTMENT FOR VOCATIONAL & TECHNICAL TRAINING', textLeft, 48, { width: textWidth, align: 'center' });
-  
-  doc
-    .fillColor(GREEN).fontSize(14).font('Helvetica-Bold')
-    .text('NORTH HORR TECHNICAL AND VOCATIONAL COLLEGE', textLeft, doc.y + 2, { width: textWidth, align: 'center' });
-  
-  doc
-    .fillColor(GREY).fontSize(8).font('Helvetica')
-    .text('P.O. Box 12, North Horr, Marsabit County, Kenya  |  Tel: +254 721 998 512  |  northhorrtvc@gmail.com  |  www.northhorrtvc.ac.ke', textLeft, doc.y + 4, { width: textWidth, align: 'center' });
-
-  if (subtitle) {
-    doc
-      .fillColor(DARK).fontSize(11).font('Helvetica-Bold')
-      .text(subtitle.toUpperCase(), textLeft, doc.y + 8, { width: textWidth, align: 'center' });
+  let lineY = 48;
+  if (st.ministry_line) {
+    doc.fillColor('#555').fontSize(7.5).font('Helvetica').text(st.ministry_line, textLeft, lineY, { width: textWidth, align: 'center' });
+    lineY = doc.y + 2;
+  }
+  if (st.college_name) {
+    doc.fillColor(GREEN).fontSize(14).font('Helvetica-Bold').text(st.college_name, textLeft, lineY, { width: textWidth, align: 'center' });
+    lineY = doc.y + 4;
+  }
+  if (st.contact_line) {
+    doc.fillColor(GREY).fontSize(8).font('Helvetica').text(st.contact_line, textLeft, lineY, { width: textWidth, align: 'center' });
+    lineY = doc.y + 2;
+  }
+  if (st.extra_line) {
+    doc.fillColor(GREY).fontSize(8).font('Helvetica').text(st.extra_line, textLeft, lineY, { width: textWidth, align: 'center' });
   }
 
-  const dividerY = doc.y + 10;
+  // the document's own title can be changed too
+  const title = (doc._tpl && typeof doc._tpl._title === 'string' && doc._tpl._title.trim()) || subtitle;
+  if (title) {
+    doc.fillColor(DARK).fontSize(11).font('Helvetica-Bold').text(String(title).toUpperCase(), textLeft, doc.y + 8, { width: textWidth, align: 'center' });
+  }
+
+  const dividerY = Math.max(doc.y, 112) + 10;
   doc.moveTo(pageLeft, dividerY).lineTo(pageRight, dividerY).strokeColor(GREEN).lineWidth(1.5).stroke();
   return dividerY + 12;
 }
 
+// Extra paragraphs the admin added to this document (extra_1 ... extra_5), shown after the main text
+function drawExtras(doc, getBlock) {
+  if (doc._extrasDrawn) return;
+  doc._extrasDrawn = true;
+  const get = getBlock || ((k) => (doc._tpl && doc._tpl[k]) || '');
+  const items = [1, 2, 3, 4, 5].map((i) => String(get(`extra_${i}`) || '').trim()).filter(Boolean);
+  if (!items.length) return;
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  doc.font('Helvetica').fontSize(10).fillColor(DARK);
+  items.forEach((t) => doc.text(t, left, doc.y + 8, { width, lineGap: 4 }));
+}
+
+// The signature (and stamp) images uploaded for a letter, drawn where the writer signs
+function drawSignatureImages(doc, y) {
+  const left = doc.page.margins.left;
+  try { if (doc._signature) doc.image(doc._signature, left, y, { fit: [150, 34] }); } catch (e) { /* skip a broken image */ }
+  try { if (doc._stamp) doc.image(doc._stamp, left + 175, y - 8, { fit: [64, 52] }); } catch (e) { /* skip a broken image */ }
+}
+
+// Called by each document once its template is loaded
+async function applyTemplate(doc, textBlocks) {
+  doc._tpl = textBlocks || {};
+  doc._signature = await fetchImageBuffer(textBlocks?._signature_url);
+  doc._stamp = await fetchImageBuffer(textBlocks?._stamp_url);
+}
+
 function drawFooter(doc, refText = '') {
+  const st = doc._style || DEFAULT_STYLE;
+  drawExtras(doc); // any extras not yet placed by the document itself
+  if (st.show_footer === false) return;
   const pageLeft = doc.page.margins.left;
   const pageRight = doc.page.width - doc.page.margins.right;
   const footerY = doc.page.height - 40;
@@ -115,7 +218,7 @@ function drawFooter(doc, refText = '') {
   doc
     .fillColor(LIGHT_GREY).fontSize(7.5).font('Helvetica')
     .text(
-      `NTVC is accredited by TVETA & KNQA  |  www.northhorrtvc.ac.ke  |  northhorrtvc@gmail.com${refText ? '  |  ' + refText : ''}`,
+      `${st.footer_text || ''}${refText ? (st.footer_text ? '  |  ' : '') + refText : ''}`,
       pageLeft, footerY + 6, { align: 'center', width: pageRight - pageLeft }
     );
 }
@@ -141,9 +244,7 @@ function fmtKES(amount) {
 
 async function generateAdmissionLetter(student, feeTypes = []) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'ADMISSION_LETTER' }
-    });
+    const template = await getTemplate('ADMISSION_LETTER');
 
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
@@ -151,6 +252,7 @@ async function generateAdmissionLetter(student, feeTypes = []) {
     };
 
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     
     // Add defaults if they are missing
     const defaultBlocks = {
@@ -242,10 +344,14 @@ async function generateAdmissionLetter(student, feeTypes = []) {
     y = doc.y + 8;
     doc.text(getBlock('forms_note'), pageLeft, y, lineGap);
     y = doc.y + 8;
+    drawExtras(doc, getBlock);
+    doc.font('Helvetica').fontSize(10).fillColor(DARK);
+    y = doc.y + 8;
     doc.text(getBlock('closing'), pageLeft, y, lineGap);
     y = doc.y + 30;
 
     // Signature
+    if (doc._signature || doc._stamp) { drawSignatureImages(doc, y); y += 44; }
     doc.font('Helvetica-Bold').text(getBlock('signatory_name'), pageLeft, y);
     y = doc.y + 2;
     doc.font('Helvetica-Bold').text(getBlock('signatory_title'), pageLeft, y);
@@ -256,9 +362,7 @@ async function generateAdmissionLetter(student, feeTypes = []) {
 
 async function generateLetterOfAcceptance(student) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'ACCEPTANCE_LETTER' }
-    });
+    const template = await getTemplate('ACCEPTANCE_LETTER');
 
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
@@ -266,6 +370,7 @@ async function generateLetterOfAcceptance(student) {
     };
 
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     const defaultBlocks = {
       intro: 'With reference to the admission offer made to you by North Horr Technical and Vocational College, we are pleased to confirm your acceptance into the following programme:',
       conditions_intro: 'Your acceptance is subject to the following conditions;',
@@ -356,13 +461,17 @@ async function generateLetterOfAcceptance(student) {
     });
     y = doc.y + 18;
 
-    // Closing
+    // Extra paragraphs, then the closing
+    drawExtras(doc, getBlock);
+    doc.font('Helvetica').fontSize(10).fillColor(DARK);
+    y = doc.y + 8;
     doc.text(getBlock('closing'), pageLeft, y, lineGap);
     y = doc.y + 20;
 
     // Signature
     doc.text('Yours sincerely,', pageLeft, y);
     y = doc.y + 36;
+    drawSignatureImages(doc, y - 34);
     doc.font('Helvetica-Bold').text(getBlock('signatory_name'), pageLeft, y);
     y = doc.y + 2;
     doc.font('Helvetica-Bold').text(getBlock('signatory_title'), pageLeft, y);
@@ -373,9 +482,7 @@ async function generateLetterOfAcceptance(student) {
 
 async function generateAdmissionForTraining(student) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'TRAINING_ADMISSION' }
-    });
+    const template = await getTemplate('TRAINING_ADMISSION');
 
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
@@ -383,6 +490,7 @@ async function generateAdmissionForTraining(student) {
     };
 
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     const defaultBlocks = {
       intro: 'You have been admitted for training at North Horr Technical and Vocational College under the following programme. Please report to the college on the specified date with all required documents.',
       requirements_intro: 'What to bring on reporting day:',
@@ -481,9 +589,7 @@ async function generateAdmissionForTraining(student) {
 
 async function generateFeeStructure(student, feeTypes = []) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'FEE_STRUCTURE' }
-    });
+    const template = await getTemplate('FEE_STRUCTURE');
 
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
@@ -491,6 +597,7 @@ async function generateFeeStructure(student, feeTypes = []) {
     };
 
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     const defaultBlocks = {
       payment_info: 'Fees can be paid at the Finance Office via cash, bank transfer, or M-Pesa. Students should retain all payment receipts.',
       scholarship_note: 'You are advised to apply for government scholarships, HELB loans, and bursaries through www.hef.co.ke to cater for fees and other personal expenses.',
@@ -586,14 +693,13 @@ async function generateFeeStructure(student, feeTypes = []) {
 
 async function generateStudentPersonalInfo(student) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'PERSONAL_INFO' }
-    });
+    const template = await getTemplate('PERSONAL_INFO');
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
       college: await fetchImageBuffer(template?.college_logo_url)
     };
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     const defaultBlocks = {
       instructions: 'Please fill out this form accurately. The information provided will be used to process your admission and maintain your student records.',
       declaration: 'I declare that the information provided above is true and correct to the best of my knowledge.',
@@ -682,14 +788,13 @@ async function generateStudentPersonalInfo(student) {
 
 async function generateLPO(lpo) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'LPO' }
-    });
+    const template = await getTemplate('LPO');
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
       college: await fetchImageBuffer(template?.college_logo_url)
     };
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     const deliveryDateStr = fmtDate(lpo.delivery_date);
     const defaultTerms = [
       '1. Goods/services must conform strictly to the specifications stated above.',
@@ -819,14 +924,13 @@ async function generateLPO(lpo) {
 
 async function generateRFQ(rfq) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'RFQ' }
-    });
+    const template = await getTemplate('RFQ');
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
       college: await fetchImageBuffer(template?.college_logo_url)
     };
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     const closingDateStr = rfq.closing_date ? fmtDate(rfq.closing_date) : 'the date indicated above';
     const defaultInstructions = [
       `1. Submit your quotation to the Procurement Office, North Horr TVC, on or before ${closingDateStr} at 5:00 PM.`,
@@ -941,13 +1045,13 @@ async function generateRFQ(rfq) {
 
 async function generateGRN(grn) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'GRN' }
-    });
+    const template = await getTemplate('GRN');
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
       college: await fetchImageBuffer(template?.college_logo_url)
     };
+
+    await applyTemplate(doc, template?.text_blocks || {});
 
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
@@ -1036,14 +1140,13 @@ async function generateGRN(grn) {
 
 async function generateSupplierInvoice(invoice) {
   return buildPDF(async (doc) => {
-    const template = await prisma.documentTemplate.findUnique({
-      where: { document_type: 'SUPPLIER_INVOICE' }
-    });
+    const template = await getTemplate('SUPPLIER_INVOICE');
     const customLogos = {
       ministry: await fetchImageBuffer(template?.ministry_logo_url),
       college: await fetchImageBuffer(template?.college_logo_url)
     };
     const textBlocks = template?.text_blocks || {};
+    await applyTemplate(doc, textBlocks);
     const getBlock = (key, def) => textBlocks[key] || def;
 
     const pageLeft = doc.page.margins.left;
@@ -1121,6 +1224,10 @@ async function generateSupplierInvoice(invoice) {
 }
 
 module.exports = {
+  overrides,
+  loadStyle,
+  cleanStyle,
+  DEFAULT_STYLE,
   generateAdmissionLetter,
   generateLetterOfAcceptance,
   generateAdmissionForTraining,
