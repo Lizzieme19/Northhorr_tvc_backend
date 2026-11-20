@@ -289,6 +289,8 @@ model Student {
 
   photo_url       String?
   profile_picture_url String? // Student profile picture for ID card
+  interests       String[] @default([]) // chosen from the interests list kept by the admin
+  sports          String[] @default([]) // chosen from the sports list kept by the admin
 
   // ID copies
   id_copy_front_url   String?
@@ -845,6 +847,21 @@ model AssetType {
   updated_at        DateTime @updatedAt
 
   @@unique([asset_class, name])
+}
+
+// The lists students choose their interests and sports from. The admin keeps them (add, rename, switch off).
+// A student's choices are stored by name on the student.
+model ProfileOption {
+  id          String   @id @default(uuid())
+  kind        String   // INTEREST | SPORT
+  name        String
+  is_active   Boolean  @default(true)
+  sort_order  Int      @default(0)
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@unique([kind, name])
 }
 
 // Where assets are kept (ICT Lab, Staffroom, Boardroom...). One list, so spelling variants don't multiply.

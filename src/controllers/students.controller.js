@@ -33,6 +33,9 @@ const studentIncludes = {
 };
 
 // Registrars handle student affairs but not finance: strip payment data from what they receive
+const { normalizeKenyaPhone, PHONE_HELP } = require('../utils/kenyaPhone');
+const { checkChoices } = require('./profileOptions.controller');
+
 const forRole = (student, role) => {
   if (role !== 'REGISTRAR' || !student) return student;
   const { fee_records, fee_adjustment, ...rest } = student;
@@ -494,6 +497,10 @@ const updateMyProfile = async (req, res) => {
       father_name, father_phone, father_email, father_occupation, father_present,
       mother_name, mother_phone, mother_email, mother_occupation, mother_present,
       parent_names, parent_phone, parent_email, parent_relationship,
+      // Deceased parents and disability
+      father_deceased, mother_deceased, has_disability, disability,
+      // Interests and sports (chosen from the lists the admin keeps; can be changed at any time)
+      interests, sports,
     } = req.body;
 
     const student = await prisma.student.findUnique({
@@ -502,6 +509,23 @@ const updateMyProfile = async (req, res) => {
     });
 
     if (!student) return res.status(404).json({ error: 'Student profile not found' });
+
+    // Kenyan mobile numbers only, kept as 07XXXXXXXX / 01XXXXXXXX
+    const phoneFields = { phone, emergency_contact_phone, father_phone, mother_phone, parent_phone };
+    const goodPhones = {};
+    for (const [k, v] of Object.entries(phoneFields)) {
+      if (v === undefined || v === null || String(v).trim() === '') continue;
+      const n = normalizeKenyaPhone(v);
+      if (!n) return res.status(400).json({ error: `${k.replace(/_/g, ' ')}: ${PHONE_HELP}`, fields: { [k]: PHONE_HELP } });
+      goodPhones[k] = n;
+    }
+    let choices;
+    try { choices = await checkChoices({ interests, sports }, { interests: student.interests, sports: student.sports }); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    const truthy = (v) => v === true || v === 'true';
+    if (has_disability !== undefined && truthy(has_disability) && !String(disability || student.application?.disability || '').trim()) {
+      return res.status(400).json({ error: 'Please say what the disability is so the college can support you', fields: { disability: 'Describe the disability' } });
+    }
 
     // ── Editing deadline — read from DB (admin can change without redeploy) ─
     const deadlineSetting = await prisma.systemSetting.findUnique({
@@ -521,6 +545,7 @@ const updateMyProfile = async (req, res) => {
       father_name, father_phone, father_email, father_occupation, father_present,
       mother_name, mother_phone, mother_email, mother_occupation, mother_present,
       parent_names, parent_phone, parent_email, parent_relationship,
+      father_deceased, mother_deceased, has_disability, disability,
     ].some(v => v !== undefined && v !== null) || other_names !== undefined;
 
     if (restrictedRequested && !withinWindow) {
@@ -562,6 +587,8 @@ const updateMyProfile = async (req, res) => {
       where: { user_id: req.user.id },
       data: {
         ...(profile_picture_url && { profile_picture_url }),
+        ...(choices.interests !== undefined && { interests: choices.interests }),
+        ...(choices.sports !== undefined && { sports: choices.sports }),
         ...(withinWindow && id_copy_front_url      !== undefined && { id_copy_front_url }),
         ...(withinWindow && id_copy_back_url       !== undefined && { id_copy_back_url }),
         ...(withinWindow && parent_id_copy_front_url !== undefined && { parent_id_copy_front_url }),
@@ -573,7 +600,7 @@ const updateMyProfile = async (req, res) => {
     // ── Update Application table (personal + parent – window-gated) ───────
     if (withinWindow && student.application) {
       const appData = {};
-      if (phone)                    appData.phone             = phone;
+      if (phone)                    appData.phone             = goodPhones.phone;
       if (address)                  appData.address           = address;
       if (id_number)                appData.id_number         = id_number;
       if (gender)                   appData.gender            = gender;
@@ -581,24 +608,39 @@ const updateMyProfile = async (req, res) => {
       if (surname)                  appData.surname           = surname;
       if (other_names !== undefined) appData.other_names      = other_names;
       if (emergency_contact_name)   appData.emergency_person  = emergency_contact_name;
-      if (emergency_contact_phone)  appData.emergency_phone   = emergency_contact_phone;
+      if (emergency_contact_phone)  appData.emergency_phone   = goodPhones.emergency_contact_phone;
       if (date_of_birth) {
         const parsed = new Date(date_of_birth);
         if (!isNaN(parsed.getTime())) appData.date_of_birth = parsed;
       }
       // Parent / Guardian fields
       if (father_name       !== undefined) appData.father_name        = father_name;
-      if (father_phone      !== undefined) appData.father_phone       = father_phone;
+      if (father_phone      !== undefined) appData.father_phone       = goodPhones.father_phone || null;
       if (father_email      !== undefined) appData.father_email       = father_email;
       if (father_occupation !== undefined) appData.father_occupation  = father_occupation;
       if (father_present    !== undefined) appData.father_present     = father_present;
       if (mother_name       !== undefined) appData.mother_name        = mother_name;
-      if (mother_phone      !== undefined) appData.mother_phone       = mother_phone;
+      if (mother_phone      !== undefined) appData.mother_phone       = goodPhones.mother_phone || null;
       if (mother_email      !== undefined) appData.mother_email       = mother_email;
       if (mother_occupation !== undefined) appData.mother_occupation  = mother_occupation;
       if (mother_present    !== undefined) appData.mother_present     = mother_present;
+      // Deceased parents have no details; disability
+      if (father_deceased !== undefined) {
+        appData.father_deceased = truthy(father_deceased);
+        if (appData.father_deceased) Object.assign(appData, { father_present: false, father_name: null, father_phone: null, father_email: null, father_occupation: null });
+      }
+      if (mother_deceased !== undefined) {
+        appData.mother_deceased = truthy(mother_deceased);
+        if (appData.mother_deceased) Object.assign(appData, { mother_present: false, mother_name: null, mother_phone: null, mother_email: null, mother_occupation: null });
+      }
+      if (has_disability !== undefined) {
+        appData.has_disability = truthy(has_disability);
+        appData.disability = appData.has_disability ? String(disability || student.application?.disability || '').trim() : null;
+      } else if (disability !== undefined && student.application?.has_disability) {
+        appData.disability = String(disability).trim() || student.application.disability;
+      }
       if (parent_names      !== undefined) appData.parent_names       = parent_names;
-      if (parent_phone      !== undefined) appData.parent_phone       = parent_phone;
+      if (parent_phone      !== undefined) appData.parent_phone       = goodPhones.parent_phone || null;
       if (parent_email      !== undefined) appData.parent_email       = parent_email;
       if (parent_relationship !== undefined) appData.parent_relationship = parent_relationship;
 
@@ -618,6 +660,25 @@ const updateMyProfile = async (req, res) => {
     });
   } catch (err) {
     console.error('Profile update error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// PATCH /api/students/:id/interests  { interests?, sports? } (Admin / Registrar)
+const updateStudentInterests = async (req, res) => {
+  try {
+    const student = await prisma.student.findUnique({ where: { id: req.params.id }, select: { id: true, interests: true, sports: true } });
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    let choices;
+    try { choices = await checkChoices(req.body || {}, student); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    const data = {};
+    if (choices.interests !== undefined) data.interests = choices.interests;
+    if (choices.sports !== undefined) data.sports = choices.sports;
+    if (!Object.keys(data).length) return res.status(400).json({ error: 'Nothing to change' });
+    const updated = await prisma.student.update({ where: { id: student.id }, data, select: { id: true, interests: true, sports: true } });
+    res.json({ message: 'Saved', ...updated });
+  } catch (err) {
+    console.error('Update interests error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -1106,6 +1167,7 @@ const mergeStudentRecords = async (req, res) => {
 };
 
 module.exports = {
+  updateStudentInterests,
   mergeStudentRecords,
   getStudents, getStudentById, getMyProfile, updateStudent,
   updateMyProfile, uploadPhoto, uploadStudentDocuments, uploadMyDocuments, getStudentStats,

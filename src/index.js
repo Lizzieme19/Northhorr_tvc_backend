@@ -35,6 +35,7 @@ const galleryRoutes = require('./routes/gallery.routes');
 const termProgressionRoutes = require('./routes/termProgression.routes');
 const documentTemplatesRoutes = require('./routes/documentTemplates.routes');
 const settingsRoutes = require('./routes/settings.routes');
+const profileOptionsRoutes = require('./routes/profileOptions.routes');
 
 const app = express();
 
@@ -112,6 +113,7 @@ app.use('/api/gallery', galleryRoutes);
 app.use('/api/term-progression', termProgressionRoutes);
 app.use('/api/document-templates', documentTemplatesRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/profile-options', profileOptionsRoutes);
 
 // 404 handler
 app.use((req, res) => {

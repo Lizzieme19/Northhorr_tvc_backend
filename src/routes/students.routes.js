@@ -7,6 +7,7 @@ const { previewStudentImport, importStudents, downloadImportTemplate } = require
 const { requirePasswordChange } = require('../middleware/requirePasswordChange');
 const { upload, spreadsheetUpload } = require('../middleware/upload');
 const {
+  updateStudentInterests,
   getStudents,
   getStudentById,
   getMyProfile,
@@ -119,6 +120,22 @@ router.get('/me', authenticate, requireRoles('STUDENT'), requirePasswordChange, 
  *         description: Profile updated
  */
 router.patch('/me', authenticate, requireRoles('STUDENT'), requirePasswordChange, updateMyProfile);
+
+/**
+ * @swagger
+ * /api/students/{id}/interests:
+ *   patch:
+ *     summary: Set a student's interests and sports (Admin / Registrar)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Saved
+ */
+router.patch('/:id/interests', authenticate, requireRoles('ADMIN', 'REGISTRAR'), updateStudentInterests);
 
 /**
  * @swagger
