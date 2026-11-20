@@ -217,6 +217,7 @@ model Application {
 
   // Father Information
   father_present        Boolean  @default(true)
+  father_deceased       Boolean  @default(false)
   father_name           String?
   father_phone          String?
   father_email          String?
@@ -224,6 +225,7 @@ model Application {
 
   // Mother Information
   mother_present        Boolean  @default(true)
+  mother_deceased       Boolean  @default(false)
   mother_name           String?
   mother_phone          String?
   mother_email          String?
@@ -232,7 +234,9 @@ model Application {
   // Medical
   medical_conditions    String?
   allergies             String?
-  disability            String?
+  has_disability        Boolean  @default(false) // ticked on the application form
+  disability            String?  // what it is, so the college can support the student
+  confirmed_at          DateTime? // when the applicant confirmed the information was correct
   emergency_person      String?
   emergency_phone       String?
 

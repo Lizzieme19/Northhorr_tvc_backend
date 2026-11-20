@@ -5,6 +5,7 @@ const { Readable } = require('stream');
 const { v4: uuidv4 } = require('uuid');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const { sendAdmissionConfirmation, sendNotification } = require('../services/emailService');
+const { normalizeKenyaPhone, PHONE_HELP } = require('../utils/kenyaPhone');
 const { progressStudent, findExistingStudentMatches } = require('../services/studentProgressionService');
 const { getInitialTermForIntake, createStudentBalance } = require('../utils/termHelper');
 const { parseLevels } = require('./courses.controller');
@@ -51,6 +52,33 @@ const submitApplication = async (req, res) => {
     // Validate required fields
     if (!body.surname || !body.other_names || !body.gender || !body.date_of_birth || !body.email || !body.phone) {
       return res.status(400).json({ error: 'Missing required personal details' });
+    }
+
+    // Parents who are deceased have no contact details to give
+    const truthy = (v) => v === true || v === 'true';
+    const fatherDeceased = truthy(body.father_deceased);
+    const motherDeceased = truthy(body.mother_deceased);
+    const hasDisability = truthy(body.has_disability);
+    if (hasDisability && !String(body.disability || '').trim()) {
+      return res.status(400).json({ error: 'Please say what the disability is so the college can support you', fields: { disability: 'Describe the disability' } });
+    }
+
+    // Kenyan phone numbers: checked and kept in one form (07XXXXXXXX or 01XXXXXXXX)
+    const phones = {};
+    const phoneErrors = {};
+    const checkPhone = (field, label, required) => {
+      const raw = body[field];
+      if (!String(raw || '').trim()) { if (required) phoneErrors[field] = `${label} is required`; return; }
+      const n = normalizeKenyaPhone(raw);
+      if (!n) phoneErrors[field] = `${label}: ${PHONE_HELP}`; else phones[field] = n;
+    };
+    checkPhone('phone', 'Phone number', true);
+    checkPhone('parent_phone', 'Parent phone number', false);
+    if (!fatherDeceased) checkPhone('father_phone', "Father's phone number", false);
+    if (!motherDeceased) checkPhone('mother_phone', "Mother's phone number", false);
+    checkPhone('emergency_phone', 'Emergency contact phone number', false);
+    if (Object.keys(phoneErrors).length) {
+      return res.status(400).json({ error: Object.values(phoneErrors)[0], fields: phoneErrors });
     }
 
     // ---------------------------------------------------------------------------
@@ -123,7 +151,7 @@ const submitApplication = async (req, res) => {
         id_number: body.id_number || null,
         birth_cert_no: body.birth_cert_no || null,
         email: body.email,
-        phone: body.phone,
+        phone: phones.phone,
         address: body.address || null,
         kcpe_index: body.kcpe_index || null,
         kcpe_marks: body.kcpe_marks ? parseInt(body.kcpe_marks) : null,
@@ -132,26 +160,30 @@ const submitApplication = async (req, res) => {
         previous_school: body.previous_school || null,
         parent_names: body.parent_names || null,
         parent_relationship: body.parent_relationship || null,
-        parent_phone: body.parent_phone || null,
+        parent_phone: phones.parent_phone || null,
         parent_email: body.parent_email || null,
         
-        father_present: body.father_present === 'true' || body.father_present === true,
-        father_name: body.father_name || null,
-        father_phone: body.father_phone || null,
-        father_email: body.father_email || null,
-        father_occupation: body.father_occupation || null,
+        father_deceased: fatherDeceased,
+        father_present: !fatherDeceased && (body.father_present === undefined || truthy(body.father_present)),
+        father_name: fatherDeceased ? null : (body.father_name || null),
+        father_phone: fatherDeceased ? null : (phones.father_phone || null),
+        father_email: fatherDeceased ? null : (body.father_email || null),
+        father_occupation: fatherDeceased ? null : (body.father_occupation || null),
 
-        mother_present: body.mother_present === 'true' || body.mother_present === true,
-        mother_name: body.mother_name || null,
-        mother_phone: body.mother_phone || null,
-        mother_email: body.mother_email || null,
-        mother_occupation: body.mother_occupation || null,
+        mother_deceased: motherDeceased,
+        mother_present: !motherDeceased && (body.mother_present === undefined || truthy(body.mother_present)),
+        mother_name: motherDeceased ? null : (body.mother_name || null),
+        mother_phone: motherDeceased ? null : (phones.mother_phone || null),
+        mother_email: motherDeceased ? null : (body.mother_email || null),
+        mother_occupation: motherDeceased ? null : (body.mother_occupation || null),
 
         medical_conditions: body.medical_conditions || null,
         allergies: body.allergies || null,
-        disability: body.disability || null,
+        has_disability: hasDisability,
+        disability: hasDisability ? String(body.disability).trim() : null,
+        confirmed_at: truthy(body.confirmed) ? new Date() : null,
         emergency_person: body.emergency_person || null,
-        emergency_phone: body.emergency_phone || null,
+        emergency_phone: phones.emergency_phone || null,
         course_id: body.course_id || null,
         department_id: body.department_id || null,
         level_applied: body.level_applied || null,
@@ -168,6 +200,17 @@ const submitApplication = async (req, res) => {
         parent_id_copy_back_url: docUrls.parent_id_copy_back || null,
       },
     });
+
+    // A receipt by email (does not hold up or fail the submission)
+    sendNotification(
+      application.email,
+      'We have received your application - North Horr TVC',
+      `<p>Dear ${application.other_names || 'Applicant'},</p>` +
+      `<p>Thank you for applying to North Horr Technical and Vocational College. We have received your application.</p>` +
+      `<p>Your reference number is <strong>${application.application_no}</strong>. Please keep it safe.</p>` +
+      `<p>We will review your application and write to you at this email address about the outcome, so please check your email regularly, including your spam or junk folder.</p>` +
+      `<p>North Horr Technical and Vocational College</p>`
+    ).catch((err) => console.error('Failed to send application receipt:', err));
 
     res.status(201).json({
       message: 'Application submitted successfully',
