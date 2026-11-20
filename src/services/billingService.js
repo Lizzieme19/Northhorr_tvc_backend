@@ -21,6 +21,44 @@ const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 const statusFor = (balance, paid) => (balance <= 0.009 ? 'PAID' : paid > 0 ? 'PARTIAL' : 'PENDING');
 
+// ───────────────────────────────────────────────────────�
+// KINDS OF STUDENT. A student has a type (Direct, KUCCPS...), kept by the admin. A type can have its own term fee for
+// each term (no row = the term's standard fee), and a fee type can be limited to certain types, with its own amount
+// for a type. With no types set up, none of this applies and fees work exactly as before.
+// ───────────────────────────────────────────────────────�
+
+// Read once and shared, so working out many students does not re-read the same settings for each
+const loadContext = async () => {
+  const [feeTypes, types, rules, termFees] = await Promise.all([
+    prisma.feeType.findMany({ where: { is_active: true, is_disabled: false } }),
+    prisma.studentType.findMany(),
+    prisma.feeTypeStudentType.findMany(),
+    prisma.termFee.findMany(),
+  ]);
+  const rulesByFeeType = new Map();
+  for (const r of rules) {
+    if (!rulesByFeeType.has(r.fee_type_id)) rulesByFeeType.set(r.fee_type_id, new Map());
+    rulesByFeeType.get(r.fee_type_id).set(r.student_type_id, r.amount);
+  }
+  return {
+    feeTypes,
+    types,
+    defaultTypeId: types.find((t) => t.is_default)?.id || null,
+    rulesByFeeType,
+    termFeeMap: new Map(termFees.map((t) => [`${t.term_id}|${t.student_type_id}`, t.amount])),
+  };
+};
+
+// The term fee for a kind of student: its own fee for the term if one is set, otherwise the term's standard fee.
+// termCostOverrides / typeFeeOverrides let a change be previewed before it is saved (a null type fee = removed).
+const termFeeFor = (ctx, term, typeId, { termCostOverrides = {}, typeFeeOverrides = {} } = {}) => {
+  const standard = termCostOverrides[term.id] ?? term.term_cost ?? 0;
+  if (!typeId || typeId === ctx.defaultTypeId) return standard;
+  const over = typeFeeOverrides[term.id];
+  if (over && Object.prototype.hasOwnProperty.call(over, typeId)) return over[typeId] ?? standard;
+  return ctx.termFeeMap.get(`${term.id}|${typeId}`) ?? standard;
+};
+
 // Does a fee type apply to this student at this level?
 const feeTypeApplies = (ft, student, level, applicantType) => {
   if (!ft.is_active || ft.is_disabled) return false;
@@ -41,9 +79,13 @@ const billingOf = (ft) => ft.billing || (ft.term_based ? (ft.added_to_term_fee ?
 // + fee types billed ONCE, in the student's first term only
 // - the student's fee adjustment (discount / waiver)
 // A fee type that is NOT_BILLED never adds anything; it is only a category for allocating payments.
-const computeCharge = ({ student, level, termCost, feeTypes, isFirstTerm }) => {
+const computeCharge = ({ student, level, termCost, feeTypes, isFirstTerm, typeId = null, rules = null }) => {
   const applicantType = student.application?.type || null;
-  const applicable = feeTypes.filter((ft) => feeTypeApplies(ft, student, level, applicantType));
+  const applicable = feeTypes
+    .filter((ft) => feeTypeApplies(ft, student, level, applicantType))
+    // a fee type limited to certain kinds of student applies only to those, at their own amount if they have one
+    .filter((ft) => !rules?.has(ft.id) || rules.get(ft.id).has(typeId))
+    .map((ft) => (rules?.has(ft.id) && rules.get(ft.id).get(typeId) != null ? { ...ft, amount: rules.get(ft.id).get(typeId) } : ft));
 
   // Tuition is the term fee. If the term has no fee set, a TUITION fee type's amount stands in for it.
   let base = termCost || 0;
@@ -73,18 +115,26 @@ const computeCharge = ({ student, level, termCost, feeTypes, isFirstTerm }) => {
 // PLAN: work out what every term row of a student should be, without writing anything
 // termCostOverrides: { [termId]: cost } lets a term fee change be previewed before it is saved
 // ─────────────────────────────────────────────────────────────────────────────
-const planStudent = async (studentId, { termCostOverrides = {}, feeTypes } = {}) => {
+// options: termCostOverrides {termId: cost}, typeFeeOverrides {termId: {typeId: fee|null}}, ruleOverrides {feeTypeId: Map|null},
+//          typeChange {typeId, fromStart}: bill the student as that type from the term starting then (all to preview a change)
+const planStudent = async (studentId, { termCostOverrides = {}, typeFeeOverrides = {}, ruleOverrides = {}, typeChange = null, feeTypes, ctx: given } = {}) => {
   const student = await prisma.student.findUnique({
     where: { id: studentId },
     include: { application: { select: { type: true } } },
   });
   if (!student) throw Object.assign(new Error('Student not found'), { status: 404 });
 
-  const [rows, records, types] = await Promise.all([
+  const [rows, records, ctx] = await Promise.all([
     prisma.studentBalance.findMany({ where: { student_id: studentId }, include: { term: true } }),
     prisma.feeRecord.findMany({ where: { student_id: studentId }, select: { term_id: true, amount: true } }),
-    feeTypes ? Promise.resolve(feeTypes) : prisma.feeType.findMany({ where: { is_active: true, is_disabled: false } }),
+    given ? Promise.resolve(given) : loadContext(),
   ]);
+  const types = feeTypes || ctx.feeTypes;
+  let rules = ctx.rulesByFeeType;
+  if (Object.keys(ruleOverrides).length) {
+    rules = new Map(rules);
+    for (const [ftId, m] of Object.entries(ruleOverrides)) { if (m) rules.set(ftId, m); else rules.delete(ftId); }
+  }
 
   rows.sort((a, b) => new Date(a.term.start_date) - new Date(b.term.start_date));
 
@@ -94,8 +144,12 @@ const planStudent = async (studentId, { termCostOverrides = {}, feeTypes } = {})
   const plan = [];
   rows.forEach((row, i) => {
     const prev = plan[i - 1];
-    const termCost = termCostOverrides[row.term_id] ?? row.term.term_cost ?? 0;
-    const charge = computeCharge({ student, level: row.level || student.level, termCost, feeTypes: types, isFirstTerm: i === 0 });
+    // the kind of student this term is billed as
+    const typeId = typeChange && new Date(row.term.start_date) >= new Date(typeChange.fromStart)
+      ? typeChange.typeId
+      : (row.student_type_id || student.student_type_id || ctx.defaultTypeId);
+    const termCost = termFeeFor(ctx, row.term, typeId, { termCostOverrides, typeFeeOverrides });
+    const charge = computeCharge({ student, level: row.level || student.level, termCost, feeTypes: types, isFirstTerm: i === 0, typeId, rules });
 
     const total_fees = row.fee_override != null ? round2(row.fee_override) : charge.total;
     // Later terms bring forward the term before. The first term keeps an opening balance it was given
@@ -107,6 +161,7 @@ const planStudent = async (studentId, { termCostOverrides = {}, feeTypes } = {})
 
     plan.push({
       row,
+      student_type_id: typeId,
       breakdown: charge.breakdown,
       before: {
         total_fees: row.total_fees, carryover: row.previous_balance_carryover || 0,
@@ -159,15 +214,15 @@ const outstandingOf = (plan, side) => round2(plan.reduce((sum, p) => sum + p[sid
 
 // Many students at once. apply=false only reports what would change.
 // opts: { apply, termCostOverrides, limitItems }
-const reconcileMany = async (studentIds, { apply = false, termCostOverrides = {}, limitItems = 200 } = {}) => {
-  const feeTypes = await prisma.feeType.findMany({ where: { is_active: true, is_disabled: false } });
+const reconcileMany = async (studentIds, { apply = false, termCostOverrides = {}, typeFeeOverrides = {}, ruleOverrides = {}, typeChange = null, limitItems = 200 } = {}) => {
+  const ctx = await loadContext();
   const summary = {
     students_checked: studentIds.length, students_changed: 0, rows_changed: 0,
     fees_before: 0, fees_after: 0, outstanding_before: 0, outstanding_after: 0, items: [], applied: apply,
   };
 
   for (const id of studentIds) {
-    const { student, plan } = await planStudent(id, { termCostOverrides, feeTypes });
+    const { student, plan } = await planStudent(id, { termCostOverrides, typeFeeOverrides, ruleOverrides, typeChange, ctx });
     const changedRows = plan.filter((p) => p.changed);
     if (!changedRows.length) continue;
 
@@ -212,7 +267,7 @@ const allStudentIdsWithBalances = async () => {
 // Put a student in a term (or refresh the row if they are already in it) with fees worked out
 // by the engine. This is what every assign/enrol path calls.
 const createStudentBalance = async (studentId, termId, level) => {
-  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, level: true } });
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, level: true, student_type_id: true } });
   if (!student) throw new Error('Student not found');
   const term = await prisma.term.findUnique({ where: { id: termId }, select: { id: true } });
   if (!term) throw new Error('Term not found');
@@ -222,7 +277,11 @@ const createStudentBalance = async (studentId, termId, level) => {
   });
   if (!existing) {
     await prisma.studentBalance.create({
-      data: { student_id: studentId, term_id: termId, level: level || student.level, total_fees: 0, amount_paid: 0, balance: 0, status: 'PENDING' },
+      data: {
+        student_id: studentId, term_id: termId, level: level || student.level, total_fees: 0, amount_paid: 0, balance: 0, status: 'PENDING',
+        // billed as the kind of student they are now; later changes to their type do not rewrite this term
+        student_type_id: student.student_type_id || (await prisma.studentType.findFirst({ where: { is_default: true }, select: { id: true } }))?.id || null,
+      },
     });
   }
 
@@ -240,17 +299,20 @@ const chargeForStudentTerm = async (studentId, termId) => {
   const term = await prisma.term.findUnique({ where: { id: termId } });
   if (!term) throw new Error('Term not found');
 
-  const [feeTypes, earlier] = await Promise.all([
-    prisma.feeType.findMany({ where: { is_active: true, is_disabled: false } }),
+  const [ctx, earlier] = await Promise.all([
+    loadContext(),
     prisma.studentBalance.count({ where: { student_id: studentId, term: { start_date: { lt: term.start_date } } } }),
   ]);
-  const charge = computeCharge({ student, level: student.level, termCost: term.term_cost, feeTypes, isFirstTerm: earlier === 0 });
+  const typeId = student.student_type_id || ctx.defaultTypeId;
+  const charge = computeCharge({ student, level: student.level, termCost: termFeeFor(ctx, term, typeId), feeTypes: ctx.feeTypes, isFirstTerm: earlier === 0, typeId, rules: ctx.rulesByFeeType });
   return { totalFees: charge.total, feeBreakdown: charge.breakdown, adjustment: charge.adjustment, level: student.level, course: student.course?.name };
 };
 
 module.exports = {
   round2,
   computeCharge,
+  loadContext,
+  termFeeFor,
   planStudent,
   applyPlan,
   reconcileStudent,

@@ -22,6 +22,7 @@ const buildStudentWhere = (q) => {
   if (q.intake && INTAKES.includes(String(q.intake).toUpperCase())) where.intake = String(q.intake).toUpperCase();
   if (q.year && !isNaN(parseInt(q.year))) where.year = parseInt(q.year);
   if (q.status && STUDENT_STATUSES.includes(String(q.status).toUpperCase())) where.status = String(q.status).toUpperCase();
+  if (q.student_type_id) where.student_type_id = q.student_type_id;
   if (q.helb === 'true') where.helb_applied = true;
   if (q.helb === 'false') where.helb_applied = false;
 

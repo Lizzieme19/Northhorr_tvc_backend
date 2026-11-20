@@ -36,6 +36,7 @@ const termProgressionRoutes = require('./routes/termProgression.routes');
 const documentTemplatesRoutes = require('./routes/documentTemplates.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const profileOptionsRoutes = require('./routes/profileOptions.routes');
+const studentTypesRoutes = require('./routes/studentTypes.routes');
 
 const app = express();
 
@@ -114,6 +115,7 @@ app.use('/api/term-progression', termProgressionRoutes);
 app.use('/api/document-templates', documentTemplatesRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/profile-options', profileOptionsRoutes);
+app.use('/api/student-types', studentTypesRoutes);
 
 // 404 handler
 app.use((req, res) => {

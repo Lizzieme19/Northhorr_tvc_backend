@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const { sendAdmissionConfirmation, sendNotification } = require('../services/emailService');
 const { normalizeKenyaPhone, PHONE_HELP } = require('../utils/kenyaPhone');
+const { typeIdForApplication } = require('../services/studentTypeService');
 const { progressStudent, findExistingStudentMatches } = require('../services/studentProgressionService');
 const { getInitialTermForIntake, createStudentBalance } = require('../utils/termHelper');
 const { parseLevels } = require('./courses.controller');
@@ -504,6 +505,7 @@ const updateApplicationStatus = async (req, res) => {
           year: studentYear,
           admission_month_shortcode: monthShortcode,
           current_term_id: initialTerm.id,
+          student_type_id: await typeIdForApplication(application.type),
           id_copy_front_url: application.id_copy_front_url,
           id_copy_back_url: application.id_copy_back_url,
           parent_id_copy_front_url: application.parent_id_copy_front_url,

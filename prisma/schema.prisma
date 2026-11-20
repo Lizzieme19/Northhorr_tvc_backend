@@ -315,6 +315,7 @@ model Student {
   tuition_fee_paid    Boolean @default(false) // Manual tuition fee payment indication
   full_year_paid      Boolean @default(false) // Full-year tuition payment
   fee_adjustment      Float    @default(0) // Fee adjustment (discount/waiver amount)
+  student_type_id     String?  // the kind of student (Direct, KUCCPS...) that decides the term fee; empty = the default type
 
   // Current term enrollment
   current_term_id String? // Active term for the student
@@ -335,6 +336,7 @@ model Student {
   fee_records     FeeRecord[]
   student_balances StudentBalance[]
   current_term    Term?         @relation("StudentCurrentTerm", fields: [current_term_id], references: [id])
+  student_type    StudentType?  @relation(fields: [student_type_id], references: [id])
   progressions    StudentProgression[]
 }
 
@@ -949,6 +951,7 @@ model FeeType {
 
   course      Course?  @relation(fields: [course_id], references: [id])
   fee_records FeeRecord[] @relation("FeeRecordFeeType")
+  student_type_rules FeeTypeStudentType[]
 }
 
 model Term {
@@ -968,6 +971,56 @@ model Term {
   student_balances StudentBalance[]
   students Student[] @relation("StudentCurrentTerm")
   progressions StudentProgression[]
+  type_fees    TermFee[]
+}
+
+// The kinds of student the college has (Direct, KUCCPS, Government sponsored...), kept by the admin. A kind has its own
+// term fee for each term, and fee types can be limited to certain kinds.
+model StudentType {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  is_default  Boolean  @default(false) // students with no type, and terms with no fee set for a type, use the default
+  is_active   Boolean  @default(true)
+  sort_order  Int      @default(0)
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  students    Student[]
+  balances    StudentBalance[]
+  term_fees   TermFee[]
+  fee_rules   FeeTypeStudentType[]
+}
+
+// The term fee for one kind of student in one term. No row = that kind pays the term's standard fee.
+model TermFee {
+  id              String   @id @default(uuid())
+  term_id         String
+  student_type_id String
+  amount          Float
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  term            Term        @relation(fields: [term_id], references: [id], onDelete: Cascade)
+  student_type    StudentType @relation(fields: [student_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([term_id, student_type_id])
+}
+
+// Limits a fee type to certain kinds of student. A fee type with no rows applies to every kind. `amount` is the
+// amount for that kind when it differs from the fee type's own.
+model FeeTypeStudentType {
+  id              String   @id @default(uuid())
+  fee_type_id     String
+  student_type_id String
+  amount          Float?
+
+  fee_type        FeeType     @relation(fields: [fee_type_id], references: [id], onDelete: Cascade)
+  student_type    StudentType @relation(fields: [student_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([fee_type_id, student_type_id])
 }
 
 model StudentBalance {
@@ -989,11 +1042,16 @@ model StudentBalance {
   fee_override   Float?
   override_reason String?
 
+  // The kind of student this term was billed as. Empty = whatever the student's type is. Changing a student's type
+  // from a chosen term onward leaves the terms before it billed as they were.
+  student_type_id String?
+
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
   student     Student  @relation(fields: [student_id], references: [id])
   term        Term     @relation(fields: [term_id], references: [id])
+  student_type StudentType? @relation(fields: [student_type_id], references: [id])
 
   @@unique([student_id, term_id], name: "student_term")
 }
