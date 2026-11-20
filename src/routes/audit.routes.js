@@ -4,6 +4,8 @@ const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
 const {
   getAuditTrail,
+  getAuditFilters,
+  exportAuditTrail,
   getAuditEntryById,
   getAuditStats,
 } = require('../controllers/audit.controller');
@@ -59,6 +61,34 @@ router.get('/stats', authenticate, requireRoles('ADMIN'), getAuditStats);
 
 /**
  * @swagger
+ * /api/audit/filters:
+ *   get:
+ *     summary: Values for the activity log filters, and counts (Admin only)
+ *     tags: [Audit]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Actions, entity types, roles, users
+ */
+router.get('/filters', authenticate, requireRoles('ADMIN'), getAuditFilters);
+
+/**
+ * @swagger
+ * /api/audit/export:
+ *   get:
+ *     summary: Export the filtered activity log as Excel (Admin only)
+ *     tags: [Audit]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: An .xlsx file
+ */
+router.get('/export', authenticate, requireRoles('ADMIN'), exportAuditTrail);
+
+/**
+ * @swagger
  * /api/audit/{id}:
  *   get:
  *     summary: Get audit entry by ID
@@ -75,6 +105,6 @@ router.get('/stats', authenticate, requireRoles('ADMIN'), getAuditStats);
  *       200:
  *         description: Audit entry details
  */
-router.get('/:id', authenticate, getAuditEntryById);
+router.get('/:id', authenticate, requireRoles('ADMIN'), getAuditEntryById);
 
 module.exports = router;

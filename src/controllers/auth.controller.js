@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../config/db');
+const { logEvent } = require('../services/activityLog');
 
 const generateTokens = (userId, role) => {
   const accessToken = jwt.sign(
@@ -39,11 +40,13 @@ const login = async (req, res) => {
     }
 
     if (!user || !user.is_active) {
+      logEvent(req, { actor: String(email).slice(0, 120), action: 'LOGIN_FAILED', summary: user ? 'Failed sign-in: account is switched off' : 'Failed sign-in: no such account', status_code: 401 });
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
+      logEvent(req, { user, action: 'LOGIN_FAILED', summary: 'Failed sign-in: wrong password', status_code: 401 });
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -66,6 +69,8 @@ const login = async (req, res) => {
         select: { id: true, admission_no: true },
       });
     }
+
+    logEvent(req, { user, action: 'LOGIN', summary: 'Signed in', status_code: 200 });
 
     res.json({
       accessToken,
@@ -129,6 +134,7 @@ const logout = async (req, res) => {
     if (refreshToken) {
       await prisma.refreshToken.deleteMany({ where: { token: refreshToken } });
     }
+    if (req.user) logEvent(req, { user: req.user, action: 'LOGOUT', summary: 'Signed out', status_code: 200 });
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

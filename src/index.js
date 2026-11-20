@@ -64,6 +64,10 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// The activity log: what each signed-in person does (see services/activityLog.js)
+const activityLog = require('./services/activityLog');
+app.use(activityLog.middleware);
+
 // Serve local static files in case B2 fallback is used
 const path = require('path');
 app.use(express.static(path.join(__dirname, '../public')));

@@ -1029,20 +1029,32 @@ model Budget {
   @@unique([department_id, fiscal_year, category])
 }
 
+// The activity log: what each signed-in person did. Rows are only ever added, never changed or removed.
 model AuditTrail {
   id              String   @id @default(uuid())
   user_id         String?
-  action          String
+  actor           String?  // who, as typed or shown: the account's email, or the email tried on a failed sign-in
+  role            String?  // their role at the time
+  action          String   // e.g. LOGIN, LOGIN_FAILED, LOGOUT, CREATE, UPDATE, DELETE, DOWNLOAD
+  summary         String?  // a sentence an admin can read: "Updated requisition: approve"
   entity_type     String   // REQUISITION, LPO, GRN, INVOICE, etc.
   entity_id       String?
+  method          String?  // GET, POST, PATCH, DELETE
+  path            String?  // the address called, e.g. /api/fees/students/123/payments
+  status_code     Int?     // 200, 403, 500 ... so refused and failed attempts show too
+  duration_ms     Int?
   old_values      String?  // JSON string
-  new_values      String?  // JSON string
+  new_values      String?  // JSON string: what was sent (passwords and tokens are never stored)
   ip_address      String?
   user_agent      String?
 
   created_at      DateTime @default(now())
 
   user            User?    @relation(fields: [user_id], references: [id])
+
+  @@index([created_at])
+  @@index([user_id, created_at])
+  @@index([entity_type, created_at])
 }
 
 model Gallery {
