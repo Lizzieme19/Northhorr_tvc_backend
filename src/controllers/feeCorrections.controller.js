@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { parsePaidAt } = require('../utils/paymentDate');
 const {
   reconcileStudent,
   reconcileMany,
@@ -72,9 +73,7 @@ const editPayment = async (req, res) => {
       data.amount = a;
     }
     if (paid_at) {
-      const d = new Date(paid_at);
-      if (isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid payment date' });
-      data.paid_at = d;
+      try { data.paid_at = parsePaidAt(paid_at); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
     }
     if (notes !== undefined) data.notes = notes || null;
     if (fee_type_id !== undefined) {

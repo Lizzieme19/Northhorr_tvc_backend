@@ -2,6 +2,7 @@ const prisma = require('../config/db');
 const { summarizeBalances } = require('../utils/feeTotals');
 const { chargeForStudentTerm, createStudentBalance } = require('../services/billingService');
 const { parsePaging, buildStudentWhere } = require('../utils/studentFilters');
+const { parsePaidAt, daysAgo, dayOf } = require('../utils/paymentDate');
 
 // Fees for a term come from the billing engine (services/billingService.js), shared by every enrol path
 const calculateTermFees = chargeForStudentTerm;
@@ -70,11 +71,15 @@ const enrollStudentInTerm = async (req, res) => {
 const recordFeePayment = async (req, res) => {
   try {
     const { studentId, termId } = req.params;
-    const { amount, fee_type_id, notes } = req.body;
+    const { fee_type_id, notes } = req.body;
+    const amount = parseFloat(req.body.amount);
 
-    if (!amount || amount <= 0) {
+    if (!(amount > 0)) {
       return res.status(400).json({ error: 'Invalid payment amount' });
     }
+    // The date it was received (optional, defaults to now; earlier days are allowed)
+    let paidAt;
+    try { paidAt = parsePaidAt(req.body.paid_at); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
 
     const studentBalance = await prisma.studentBalance.findUnique({
       where: {
@@ -98,6 +103,7 @@ const recordFeePayment = async (req, res) => {
         amount,
         received_by: req.user.id,
         notes: notes || null,
+        ...(paidAt && { paid_at: paidAt }),
       },
       include: { feeType: true },
     });
@@ -118,6 +124,7 @@ const recordFeePayment = async (req, res) => {
 
     res.json({
       message: 'Payment recorded successfully',
+      backdated_days: daysAgo(feeRecord.paid_at),
       feeRecord,
       updatedBalance,
       allocated: !!fee_type_id,
@@ -145,6 +152,18 @@ const allocatePayment = async (req, res) => {
       return res.status(400).json({ error: 'Total allocation amount must be greater than 0' });
     }
 
+    let paidAt;
+    try { paidAt = parsePaidAt(req.body.paid_at); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+
+    // Validate all fee types exist (before anything is changed)
+    const feeTypeIds = allocations.map((a) => a.fee_type_id);
+    const feeTypes = await prisma.feeType.findMany({
+      where: { id: { in: feeTypeIds } },
+    });
+    if (feeTypes.length !== feeTypeIds.length) {
+      return res.status(400).json({ error: 'One or more fee types not found' });
+    }
+
     // Get current unallocated payment total for this student & term
     const unallocatedRecords = await prisma.feeRecord.findMany({
       where: {
@@ -164,12 +183,15 @@ const allocatePayment = async (req, res) => {
       });
     }
 
-    // Deduct allocated amounts from the unallocated records
+    // Deduct allocated amounts from the unallocated records. The allocated payments keep the date the money
+    // was received (the oldest payment used), unless a date is given.
     let remainingToDeduct = totalAllocating;
+    let inheritedDate = null;
     for (const record of unallocatedRecords) {
       if (remainingToDeduct <= 0.01) break;
       const deduct = Math.min(record.amount, remainingToDeduct);
-      
+      if (!inheritedDate) inheritedDate = record.paid_at;
+
       if (record.amount - deduct <= 0.01) {
         // Fully consumed, delete the unallocated record
         await prisma.feeRecord.delete({ where: { id: record.id } });
@@ -182,15 +204,7 @@ const allocatePayment = async (req, res) => {
       }
       remainingToDeduct -= deduct;
     }
-
-    // Validate all fee types exist
-    const feeTypeIds = allocations.map((a) => a.fee_type_id);
-    const feeTypes = await prisma.feeType.findMany({
-      where: { id: { in: feeTypeIds } },
-    });
-    if (feeTypes.length !== feeTypeIds.length) {
-      return res.status(400).json({ error: 'One or more fee types not found' });
-    }
+    const allocatedAt = paidAt || inheritedDate;
 
     // Create allocation records
     const createdRecords = [];
@@ -204,6 +218,7 @@ const allocatePayment = async (req, res) => {
           amount: parseFloat(allocation.amount),
           received_by: req.user.id,
           notes: notes || `Manual allocation by finance officer`,
+          ...(allocatedAt && { paid_at: allocatedAt }),
         },
         include: { feeType: true },
       });
@@ -295,88 +310,98 @@ const getAllocationBreakdown = async (req, res) => {
   }
 };
 
-// Bulk record fee payments for multiple students
+// Record payments for several students at once (POST /fees/bulk-record-payment)
+// body: { paid_at?, fee_type_id?, allow_duplicates?, payments: [{ studentId, termId, amount, notes?, reference?, paid_at?, fee_type_id? }] }
+// Each row is recorded on its own: one that cannot be recorded does not stop the others. A row that looks like a
+// payment already recorded (same student, term, amount and day) is held back unless allow_duplicates is true.
 const bulkRecordFeePayment = async (req, res) => {
   try {
-    const { payments } = req.body; // Array of { studentId, termId, amount, fee_type_id, notes }
+    const { payments, paid_at: commonDate, fee_type_id: commonFeeType, allow_duplicates } = req.body;
 
     if (!payments || !Array.isArray(payments) || payments.length === 0) {
-      return res.status(400).json({ error: 'payments array is required' });
+      return res.status(400).json({ error: 'Add at least one payment' });
     }
+    if (payments.length > 500) {
+      return res.status(400).json({ error: 'Record at most 500 payments at a time' });
+    }
+    let defaultDate;
+    try { defaultDate = parsePaidAt(commonDate); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
 
     const results = [];
     const errors = [];
+    const held = [];
 
     for (const payment of payments) {
+      const { studentId, termId, notes, reference } = payment;
+      const amount = parseFloat(payment.amount);
+      const fee_type_id = payment.fee_type_id || commonFeeType || null;
       try {
-        const { studentId, termId, amount, fee_type_id, notes } = payment;
-
-        if (!studentId || !termId || !amount || amount <= 0) {
-          errors.push({ payment, error: 'Invalid payment data' });
+        if (!studentId || !termId || !(amount > 0)) {
+          errors.push({ studentId, termId, error: 'Choose the student and term and enter an amount above 0' });
           continue;
         }
+        let paidAt = defaultDate;
+        if (payment.paid_at) paidAt = parsePaidAt(payment.paid_at);
 
         const studentBalance = await prisma.studentBalance.findUnique({
-          where: {
-            student_term: {
-              student_id: studentId,
-              term_id: termId,
-            },
-          },
+          where: { student_term: { student_id: studentId, term_id: termId } },
+          include: { student: { select: { admission_no: true } } },
         });
-
         if (!studentBalance) {
-          errors.push({ studentId, termId, error: 'Student balance record not found' });
+          errors.push({ studentId, termId, error: 'The student is not assigned to that term' });
           continue;
         }
+        const label = studentBalance.student?.admission_no;
 
-        // Create fee record
+        // the same payment recorded twice by accident
+        if (!allow_duplicates) {
+          const day = paidAt || new Date();
+          const from = new Date(`${dayOf(day)}T00:00:00+03:00`);
+          const to = new Date(from.getTime() + 24 * 3600 * 1000);
+          const same = await prisma.feeRecord.findFirst({ where: { student_id: studentId, term_id: termId, amount, paid_at: { gte: from, lt: to } } });
+          if (same) {
+            held.push({ studentId, termId, admission_no: label, amount, reason: 'A payment of the same amount was already recorded for this student and term on that day' });
+            continue;
+          }
+        }
+
         const feeRecord = await prisma.feeRecord.create({
           data: {
             student_id: studentId,
             term_id: termId,
-            fee_type_id: fee_type_id || null,
+            fee_type_id,
             amount,
             received_by: req.user.id,
-            notes,
+            notes: [reference && `Ref: ${String(reference).trim()}`, notes].filter(Boolean).join(' · ') || null,
+            ...(paidAt && { paid_at: paidAt }),
           },
         });
 
-        // Update student balance
         const newAmountPaid = studentBalance.amount_paid + amount;
         const newBalance = studentBalance.balance - amount;
         const newStatus = newBalance <= 0 ? 'PAID' : (newAmountPaid > 0 ? 'PARTIAL' : 'PENDING');
-
         const updatedBalance = await prisma.studentBalance.update({
           where: { id: studentBalance.id },
-          data: {
-            amount_paid: newAmountPaid,
-            balance: Math.max(0, newBalance),
-            status: newStatus,
-          },
+          data: { amount_paid: newAmountPaid, balance: Math.max(0, newBalance), status: newStatus },
         });
 
         results.push({
-          studentId,
-          termId,
-          amount,
+          studentId, termId, admission_no: label, amount,
+          paid_at: feeRecord.paid_at,
           feeRecordId: feeRecord.id,
           newBalance: updatedBalance.balance,
           status: updatedBalance.status,
         });
       } catch (err) {
-        errors.push({ payment, error: err.message });
+        errors.push({ studentId, termId, error: err.message });
       }
     }
 
     res.json({
-      message: 'Bulk fee payments recorded',
-      summary: {
-        total: payments.length,
-        successful: results.length,
-        failed: errors.length,
-      },
+      message: `Recorded ${results.length} of ${payments.length} payments`,
+      summary: { total: payments.length, successful: results.length, held: held.length, failed: errors.length, amount: results.reduce((n, r) => n + r.amount, 0) },
       results,
+      held,
       errors,
     });
   } catch (err) {

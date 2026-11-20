@@ -4,6 +4,7 @@ const { parsePaging, buildStudentWhere, resolveFeeFilterIds } = require('../util
 // const { sendFeeReminder } = require('../services/emailService');
 
 // Generate unique reference code for fee payments
+const { parsePaidAt } = require('../utils/paymentDate');
 const generateReferenceCode = () => {
   const timestamp = Date.now().toString(36).toUpperCase();
   const random = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -100,6 +101,8 @@ const getFeeSummary = async (req, res) => {
 const markFeePaid = async (req, res) => {
   try {
     const { fee_type_id, term_id, amount } = req.body;
+    let paidAt;
+    try { paidAt = parsePaidAt(req.body.paid_at); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
 
     console.log('Mark fee paid request:', { studentId: req.params.id, fee_type_id, term_id, amount });
 
@@ -129,6 +132,7 @@ const markFeePaid = async (req, res) => {
         amount: parseFloat(amount) || feeType.amount,
         reference_code: generateReferenceCode(),
         received_by: req.user.id,
+        ...(paidAt && { paid_at: paidAt }),
       },
     });
 
