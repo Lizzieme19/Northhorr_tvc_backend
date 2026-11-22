@@ -310,6 +310,7 @@ const chargeForStudentTerm = async (studentId, termId) => {
 
 module.exports = {
   round2,
+  statusFor,
   computeCharge,
   loadContext,
   termFeeFor,
