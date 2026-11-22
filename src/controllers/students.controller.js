@@ -17,6 +17,9 @@ const studentIncludes = {
   department: { select: { id: true, name: true, slug: true } },
   current_term: { select: { id: true, name: true, academic_year: true } },
   student_type: { select: { id: true, name: true } },
+  // the login owner (when this is a linked admission) and the admissions linked under this one
+  primary_student: { select: { id: true, admission_no: true } },
+  linked_admissions: { select: { id: true, admission_no: true, level: true, status: true } },
   // the whole application record, so nothing the student gave (or the admin added) is left out when a student is pulled
   application: true,
   admission_letter: { select: { id: true, generated_at: true } },
@@ -1120,6 +1123,11 @@ const deleteStudent = async (req, res) => {
 
     if (!student) return res.status(404).json({ error: 'Student not found' });
 
+    const linkedUnder = await prisma.student.findMany({ where: { primary_student_id: id }, select: { admission_no: true } });
+    if (linkedUnder.length) {
+      return res.status(409).json({ error: `${student.admission_no} holds the login for ${linkedUnder.map((l) => l.admission_no).join(', ')}. Unlink ${linkedUnder.length === 1 ? 'it' : 'them'} first.` });
+    }
+
     // Delete in FK dependency order
     await prisma.studentBalance.deleteMany({ where: { student_id: id } });
     await prisma.feeRecord.deleteMany({ where: { student_id: id } });
@@ -1172,8 +1180,13 @@ const getDuplicates = async (req, res) => {
     }
 
     // Keep only groups with more than 1 student
+    // a name whose records are all linked under one login is already dealt with
+    const allLinked = (g) => {
+      const owner = g[0].primary_student_id || g[0].id;
+      return g.every((x) => x.id === owner || x.primary_student_id === owner);
+    };
     const duplicates = Object.values(groups)
-      .filter(g => g.length > 1)
+      .filter(g => g.length > 1 && !allLinked(g))
       .map(g => ({
         name: `${g[0].application?.surname || ''} ${g[0].application?.other_names || ''}`.trim(),
         count: g.length,

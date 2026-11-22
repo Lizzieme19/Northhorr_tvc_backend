@@ -317,6 +317,14 @@ model Student {
   fee_adjustment      Float    @default(0) // Fee adjustment (discount/waiver amount)
   student_type_id     String?  // the kind of student (Direct, KUCCPS...) that decides the term fee; empty = the default type
 
+  // Linked admissions: one person's other admissions (say Level 5, then Level 6) are separate student records that
+  // share ONE login. The record that owns the login is the primary; each other admission points at it and keeps its
+  // own course, level, intake, dates, status, bills, payments and documents. Empty = not linked to another admission.
+  primary_student_id  String?
+  linked_at           DateTime?
+  linked_by           String?
+  link_parked_login   Boolean  @default(false) // this admission's own login was switched off by the link, so unlinking switches it back on
+
   // Current term enrollment
   current_term_id String? // Active term for the student
 
@@ -338,6 +346,10 @@ model Student {
   current_term    Term?         @relation("StudentCurrentTerm", fields: [current_term_id], references: [id])
   student_type    StudentType?  @relation(fields: [student_type_id], references: [id])
   progressions    StudentProgression[]
+  primary_student   Student?   @relation("AdmissionLink", fields: [primary_student_id], references: [id], onDelete: SetNull)
+  linked_admissions Student[]  @relation("AdmissionLink")
+
+  @@index([primary_student_id])
 }
 
 model AdmissionLetter {

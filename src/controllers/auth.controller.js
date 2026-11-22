@@ -30,13 +30,19 @@ const login = async (req, res) => {
     let user;
     const studentByAdmission = await prisma.student.findUnique({
       where: { admission_no: email },
-      include: { user: true },
+      include: { user: true, primary_student: { include: { user: true } } },
     });
 
     if (studentByAdmission) {
-      user = studentByAdmission.user;
+      // a linked admission signs in through the login its admissions share
+      user = studentByAdmission.primary_student?.user || studentByAdmission.user;
     } else {
       user = await prisma.user.findUnique({ where: { email } });
+      // the email of a linked admission also leads to the shared login
+      if (user && !user.is_active) {
+        const parked = await prisma.student.findUnique({ where: { user_id: user.id }, include: { primary_student: { include: { user: true } } } });
+        if (parked?.link_parked_login && parked.primary_student?.user) user = parked.primary_student.user;
+      }
     }
 
     if (!user || !user.is_active) {

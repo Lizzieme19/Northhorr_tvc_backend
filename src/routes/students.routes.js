@@ -1,4 +1,5 @@
 const express = require('express');
+const linkCtl = require('../controllers/admissionLinks.controller');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
@@ -569,7 +570,7 @@ router.get('/duplicates', authenticate, requireRoles('ADMIN', 'REGISTRAR'), getD
  * @swagger
  * /api/students/{id}/merge:
  *   post:
- *     summary: Link an older record of the same student into this one (Admin/Registrar)
+ *     summary: DEPRECATED - folds an older record into this one and deletes it. Use link-admission instead (Admin/Registrar)
  *     description: Balances, payments, documents and history move to this record; the older admission number, intake and dates become a history stage and the older record is removed.
  *     tags: [Students]
  *     security:
@@ -593,6 +594,97 @@ router.get('/duplicates', authenticate, requireRoles('ADMIN', 'REGISTRAR'), getD
  *       200:
  *         description: Records linked
  */
+/**
+ * @swagger
+ * /api/students/me/statement:
+ *   get:
+ *     summary: The signed-in student's fee statement across all their linked admissions
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Per-admission bills and payments, and the combined total
+ */
+router.get('/me/statement', authenticate, requireRoles('STUDENT'), requirePasswordChange, linkCtl.getMyStatement);
+
+/**
+ * @swagger
+ * /api/students/{id}/link-preview:
+ *   get:
+ *     summary: Compare two admissions of one person before linking them (Admin/Registrar). Changes nothing.
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *       - { in: query, name: other, required: true, schema: { type: string }, description: The other admission's student id }
+ *     responses:
+ *       200:
+ *         description: Both admissions, differing details, overlapping bills, warnings and blockers
+ */
+router.get('/:id/link-preview', authenticate, requireRoles('ADMIN', 'REGISTRAR'), linkCtl.previewLink);
+
+/**
+ * @swagger
+ * /api/students/{id}/link-admission:
+ *   post:
+ *     summary: Link another admission of the same person under this one so they share one login (Admin/Registrar)
+ *     description: Both admissions keep their own course, level, intake, dates, status, bills, payments and documents. Nothing is moved or deleted. This admission keeps the login.
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               linked_student_id: { type: string }
+ *               acknowledge_warnings: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Linked
+ *       409:
+ *         description: There are warnings to confirm first
+ */
+router.post('/:id/link-admission', authenticate, requireRoles('ADMIN', 'REGISTRAR'), linkCtl.linkAdmission);
+
+/**
+ * @swagger
+ * /api/students/{id}/unlink-admission:
+ *   post:
+ *     summary: Undo a link: this admission gets its own login back (Admin only)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string }, description: The linked admission }
+ *     responses:
+ *       200:
+ *         description: Unlinked
+ */
+router.post('/:id/unlink-admission', authenticate, requireRoles('ADMIN'), linkCtl.unlinkAdmission);
+
+/**
+ * @swagger
+ * /api/students/{id}/statement:
+ *   get:
+ *     summary: Combined fee statement across every admission of this student (Admin/Finance)
+ *     tags: [Students]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Per-admission bills and payments, and the combined total
+ */
+router.get('/:id/statement', authenticate, requireRoles('ADMIN', 'FINANCE'), linkCtl.getStatement);
+
 router.post('/:id/merge', authenticate, requireRoles('ADMIN', 'REGISTRAR'), mergeStudentRecords);
 
 /**

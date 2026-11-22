@@ -1,5 +1,6 @@
 const prisma = require('../config/db');
 const { progressStudent, buildTimeline } = require('../services/studentProgressionService');
+const { inOwnGroup, combinedHistory } = require('../services/admissionLinkService');
 
 // POST /api/term-progression/admit - Admit student to a new term (optionally a new level) with fee carry-over
 // body: { student_id, new_term_id, new_level?, new_intake?, new_year?, notes? }
@@ -47,7 +48,7 @@ const admitStudentToTerm = async (req, res) => {
 const canViewStudent = async (req, studentId) => {
   if (req.user.role !== 'STUDENT') return true;
   const own = await prisma.student.findUnique({ where: { user_id: req.user.id }, select: { id: true } });
-  return Boolean(own && own.id === studentId);
+  return Boolean(own && (await inOwnGroup(own.id, studentId)));
 };
 
 // GET /api/term-progression/:student_id/history - full academic history: every level, admission
@@ -90,7 +91,12 @@ const getStudentHistory = async (req, res) => {
         department: student.department?.name || null,
         status: student.status,
       },
-      stages: buildTimeline(student, progressions, balances),
+      // every admission of this person in one timeline (a student with a single admission sees just their own)
+      ...(await (async () => {
+        const linked = student.primary_student_id || (await prisma.student.count({ where: { primary_student_id: student.id } })) > 0;
+        if (linked) { const h = await combinedHistory(student_id); return { stages: h.stages, admissions: h.admissions }; }
+        return { stages: buildTimeline(student, progressions, balances), admissions: 1 };
+      })()),
     });
   } catch (err) {
     console.error('Get student history error:', err);

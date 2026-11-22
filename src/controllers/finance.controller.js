@@ -43,6 +43,9 @@ const getFinanceStudents = async (req, res) => {
           course: { select: { name: true } },
           department: { select: { name: true } },
           student_balances: { include: { term: true } },
+          // admissions that share one login, so the fees screen can offer the combined statement
+          primary_student: { select: { id: true, admission_no: true } },
+          linked_admissions: { select: { id: true, admission_no: true } },
         },
         orderBy,
         skip,

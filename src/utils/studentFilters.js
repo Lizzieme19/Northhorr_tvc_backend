@@ -37,6 +37,9 @@ const buildStudentWhere = (q) => {
     and.push({
       OR: [
         { admission_no: { contains: s, mode: 'insensitive' } },
+        // searching either admission number finds the whole profile
+        { linked_admissions: { some: { admission_no: { contains: s, mode: 'insensitive' } } } },
+        { primary_student: { admission_no: { contains: s, mode: 'insensitive' } } },
         { application: { surname: { contains: s, mode: 'insensitive' } } },
         { application: { other_names: { contains: s, mode: 'insensitive' } } },
         { application: { phone: { contains: s, mode: 'insensitive' } } },
