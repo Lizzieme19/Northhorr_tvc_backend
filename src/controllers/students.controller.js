@@ -83,10 +83,11 @@ const getStudentStats = async (req, res) => {
   try {
     // Linking two records of one person removes the older record, but that admission still happened: it stays in the
     // total enrolled. Each link leaves a LINKED entry in the history, so earlier merges are counted too.
-    const [currentRecords, mergedRecords, active, graduated, withdrawn, pendingApps, approvedApps] = await Promise.all([
+    const [currentRecords, mergedRecords, active, completed, graduated, withdrawn, pendingApps, approvedApps] = await Promise.all([
       prisma.student.count(),
       prisma.studentProgression.count({ where: { kind: 'LINKED' } }),
       prisma.student.count({ where: { status: 'ACTIVE' } }),
+      prisma.student.count({ where: { status: 'COMPLETED' } }),
       prisma.student.count({ where: { status: 'GRADUATED' } }),
       prisma.student.count({ where: { status: 'WITHDRAWN' } }),
       prisma.application.count({ where: { status: 'PENDING' } }),
@@ -99,7 +100,7 @@ const getStudentStats = async (req, res) => {
     });
 
     const total = currentRecords + mergedRecords;
-    res.json({ total, current_records: currentRecords, merged_records: mergedRecords, active, graduated, withdrawn, pendingApps, approvedApps, byDepartment });
+    res.json({ total, current_records: currentRecords, merged_records: mergedRecords, active, completed, graduated, withdrawn, pendingApps, approvedApps, byDepartment });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

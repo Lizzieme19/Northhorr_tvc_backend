@@ -14,7 +14,7 @@ const { getMonthShortcode } = require('../utils/admissionNumberGenerator');
 
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const levelKey = (l) => String(l || '').replace(/\s+/g, '').toLowerCase();
-const STATUSES = ['GRADUATED', 'WITHDRAWN', 'DEFERRED', 'ACTIVE', 'ATTACHMENT'];
+const STATUSES = ['GRADUATED', 'COMPLETED', 'WITHDRAWN', 'DEFERRED', 'ACTIVE', 'ATTACHMENT'];
 const startOf = (r) => new Date(r.term?.start_date || 0).getTime();
 
 // Carry-forward along one admission's own terms, keeping the billed and paid figures exactly as stored.

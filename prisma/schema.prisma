@@ -39,6 +39,7 @@ enum StudentStatus {
   GRADUATED
   WITHDRAWN
   ATTACHMENT
+  COMPLETED // finished the course work but has not graduated yet
 }
 
 enum Intake {

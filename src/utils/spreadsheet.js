@@ -133,7 +133,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const normStatus = (v) => {
   const s = text(v).toUpperCase();
   if (!s) return 'ACTIVE';
-  return ['ACTIVE', 'DEFERRED', 'GRADUATED', 'WITHDRAWN', 'ATTACHMENT'].includes(s) ? s : undefined;
+  return ['ACTIVE', 'COMPLETED', 'DEFERRED', 'GRADUATED', 'WITHDRAWN', 'ATTACHMENT'].includes(s) ? s : undefined;
 };
 
 // ── Template ─────────────────────────────────────────────────────────────────

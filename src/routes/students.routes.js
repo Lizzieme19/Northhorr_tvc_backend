@@ -249,7 +249,7 @@ router.get('/:id', authenticate, getStudentById);
  *                 type: integer
  *               status:
  *                 type: string
- *                 enum: [ACTIVE, GRADUATED, WITHDRAWN, SUSPENDED]
+ *                 enum: [ACTIVE, COMPLETED, GRADUATED, DEFERRED, WITHDRAWN, ATTACHMENT]
  *               helb_applied:
  *                 type: boolean
  *               course_id:
