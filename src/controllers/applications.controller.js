@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const { generateAdmissionNumber, getMonthShortcode } = require('../utils/admissionNumberGenerator');
 const { sendAdmissionConfirmation, sendNotification } = require('../services/emailService');
 const { normalizeKenyaPhone, PHONE_HELP } = require('../utils/kenyaPhone');
-const { typeIdForApplication } = require('../services/studentTypeService');
+const { typeIdForApplication, typeIdForApproval, assignType } = require('../services/studentTypeService');
 const { progressStudent, findExistingStudentMatches } = require('../services/studentProgressionService');
 const { getInitialTermForIntake, createStudentBalance } = require('../utils/termHelper');
 const { parseLevels } = require('./courses.controller');
@@ -311,7 +311,7 @@ const getApplicationById = async (req, res) => {
 // PATCH /api/applications/:id/status — Admin approve/reject
 const updateApplicationStatus = async (req, res) => {
   try {
-    const { status, review_notes, intake, year, continue_student_id, create_new } = req.body;
+    const { status, review_notes, intake, year, continue_student_id, create_new, student_type_id } = req.body;
     const validStatuses = ['UNDER_REVIEW', 'APPROVED', 'REJECTED'];
 
     if (!validStatuses.includes(status)) {
@@ -339,6 +339,9 @@ const updateApplicationStatus = async (req, res) => {
           error: 'Cannot approve application without an email address. Please add it first.',
         });
       }
+      // Guard: a student type chosen on approval must exist and be on
+      try { await typeIdForApproval(student_type_id, application.type); }
+      catch (e) { if (e.status) return res.status(e.status).json({ error: e.message }); throw e; }
       // Guard: course + department required
       if (!application.course_id || !application.department_id) {
         return res.status(400).json({
@@ -395,6 +398,9 @@ const updateApplicationStatus = async (req, res) => {
         if (err.status) return res.status(err.status).json({ error: err.message });
         throw err;
       }
+
+      // a type chosen on approval is applied from the term they are re-admitted to
+      if (student_type_id) await assignType([existing.id], student_type_id, { fromTerm: term, apply: true });
 
       const updated = await prisma.application.update({
         where: { id: application.id },
@@ -504,7 +510,7 @@ const updateApplicationStatus = async (req, res) => {
           year: studentYear,
           admission_month_shortcode: monthShortcode,
           current_term_id: initialTerm.id,
-          student_type_id: await typeIdForApplication(application.type),
+          student_type_id: await typeIdForApproval(student_type_id, application.type),
           id_copy_front_url: application.id_copy_front_url,
           id_copy_back_url: application.id_copy_back_url,
           parent_id_copy_front_url: application.parent_id_copy_front_url,
@@ -558,6 +564,55 @@ const updateApplicationStatus = async (req, res) => {
   } catch (err) {
     console.error('Status update error:', err);
     res.status(500).json({ error: 'Server error', details: err.message });
+  }
+};
+
+// Runs the single-application approval for one application and captures its answer
+const approveOne = (user, id, body) => new Promise((resolve) => {
+  const res = {
+    statusCode: 200,
+    status(c) { this.statusCode = c; return this; },
+    json(x) { resolve({ ...x, http: this.statusCode }); return this; },
+  };
+  updateApplicationStatus({ params: { id }, body, user, headers: {} }, res).catch((e) => resolve({ http: 500, error: e.message }));
+});
+
+// POST /api/applications/bulk-approve { application_ids, student_type_id?, intake?, year?, review_notes? }
+// Approves many applications in one go, giving every new student the chosen student type (or, with none chosen, the
+// type that matches how they applied). Applicants who may already be students, or who are missing a course, are not
+// approved: they are listed so each can be dealt with on its own.
+const bulkApproveApplications = async (req, res) => {
+  try {
+    const ids = [...new Set(Array.isArray(req.body.application_ids) ? req.body.application_ids.filter(Boolean) : [])];
+    if (ids.length === 0) return res.status(400).json({ error: 'Choose the applications to approve' });
+    if (ids.length > 200) return res.status(400).json({ error: 'Approve at most 200 applications at a time' });
+    const { student_type_id, intake, year, review_notes } = req.body;
+    try { await typeIdForApproval(student_type_id, null); }
+    catch (e) { if (e.status) return res.status(e.status).json({ error: e.message }); throw e; }
+
+    const apps = await prisma.application.findMany({ where: { id: { in: ids } }, select: { id: true, application_no: true, surname: true, other_names: true, status: true } });
+    const byId = new Map(apps.map((a) => [a.id, a]));
+    const out = { approved: [], needs_review: [], failed: [], skipped: [] };
+
+    for (const id of ids) {
+      const a = byId.get(id);
+      if (!a) { out.failed.push({ id, error: 'Application not found' }); continue; }
+      const who = { id, application_no: a.application_no, name: `${a.surname} ${a.other_names}`.trim() };
+      if (!['PENDING', 'UNDER_REVIEW'].includes(a.status)) { out.skipped.push({ ...who, reason: `Already ${a.status.toLowerCase()}` }); continue; }
+      // one at a time: admission numbers are handed out in order
+      const r = await approveOne(req.user, id, { status: 'APPROVED', intake, year, review_notes, student_type_id });
+      if (r.http === 200) out.approved.push({ ...who, admission_no: r.student_credentials?.admission_no || r.continued_student?.admission_no || null });
+      else if (r.http === 409 && r.matches) out.needs_review.push({ ...who, reason: `May already be student ${r.matches.map((m) => m.admission_no).join(', ')}. Review it on its own.` });
+      else out.failed.push({ ...who, error: r.error || 'Could not approve' });
+    }
+
+    res.json({
+      message: `${out.approved.length} approved${out.needs_review.length ? `, ${out.needs_review.length} need a look` : ''}${out.failed.length ? `, ${out.failed.length} could not be approved` : ''}.`,
+      ...out,
+    });
+  } catch (err) {
+    console.error('Bulk approve error:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
@@ -731,6 +786,7 @@ const updateApplicationDocuments = async (req, res) => {
 };
 
 module.exports = {
+  bulkApproveApplications,
   submitApplication,
   getApplications,
   getApplicationById,

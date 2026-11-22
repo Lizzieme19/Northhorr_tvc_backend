@@ -249,7 +249,11 @@ const assign = async (req, res) => {
     if (req.body.from_term_id && !fromTerm) throw fail('Term not found', 404);
     const result = await assignType(ids, req.body.student_type_id, { fromTerm, apply });
     if (apply) await audit(req, { action: 'STUDENTS_TYPE_ASSIGNED', entityId: req.body.student_type_id, newValues: { type: result.type.name, students: result.students, from_term: result.from_term?.name || null, fees_change: result.impact.fees_change } });
-    res.json({ ...result, impact: summarize(result.impact) });
+    // the registrar moves students between types but does not see money
+    const impact = req.user.role === 'REGISTRAR'
+      ? { students_changed: result.impact.students_changed, rows_changed: result.impact.rows_changed, items: [] }
+      : summarize(result.impact);
+    res.json({ ...result, impact });
   } catch (err) { send(res, err, 'Could not move the students'); }
 };
 

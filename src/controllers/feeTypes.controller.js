@@ -13,6 +13,7 @@ const getAllFeeTypes = async (req, res) => {
       where,
       include: {
         course: { select: { id: true, name: true, shortcode: true } },
+        student_type_rules: { include: { student_type: { select: { id: true, name: true } } } },
         _count: { select: { fee_records: true } },
       },
       orderBy: { name: 'asc' },
@@ -32,6 +33,7 @@ const getFeeTypeById = async (req, res) => {
       where: { id: req.params.id },
       include: {
         course: { select: { id: true, name: true, shortcode: true } },
+        student_type_rules: { include: { student_type: { select: { id: true, name: true } } } },
         fee_records: {
           include: {
             student: { select: { admission_no: true } },
@@ -61,9 +63,41 @@ const billingFields = (billing) => (BILLING.includes(billing)
   ? { billing, term_based: billing === 'EVERY_TERM', added_to_term_fee: billing === 'EVERY_TERM' }
   : {});
 
+// The kinds of student a fee type is charged to: null/[] = every student, else [{ student_type_id, amount|null }].
+// amount is for that kind of student when it differs from the fee type's own amount. Returns undefined when the
+// request did not mention it (leave the rules as they are).
+const readTypeRules = async (raw) => {
+  if (raw === undefined) return undefined;
+  if (raw === null || (Array.isArray(raw) && raw.length === 0)) return [];
+  if (!Array.isArray(raw)) throw Object.assign(new Error('student_type_rules must be a list'), { status: 400 });
+  const types = new Set((await prisma.studentType.findMany({ select: { id: true } })).map((t) => t.id));
+  const seen = new Set();
+  return raw.map((r) => {
+    if (!types.has(r.student_type_id)) throw Object.assign(new Error('A student type in the list was not found'), { status: 400 });
+    if (seen.has(r.student_type_id)) throw Object.assign(new Error('A student type is listed twice'), { status: 400 });
+    seen.add(r.student_type_id);
+    const blank = r.amount === null || r.amount === undefined || r.amount === '';
+    const amount = blank ? null : Number(r.amount);
+    if (!blank && (isNaN(amount) || amount < 0)) throw Object.assign(new Error('An amount for a student type must be a number, 0 or more'), { status: 400 });
+    return { student_type_id: r.student_type_id, amount };
+  });
+};
+
+const saveTypeRules = async (feeTypeId, rules) => {
+  if (rules === undefined) return;
+  await prisma.feeTypeStudentType.deleteMany({ where: { fee_type_id: feeTypeId } });
+  for (const r of rules) await prisma.feeTypeStudentType.create({ data: { fee_type_id: feeTypeId, student_type_id: r.student_type_id, amount: r.amount } });
+};
+
+const withRules = (feeTypeId) => prisma.feeType.findUnique({
+  where: { id: feeTypeId },
+  include: { course: { select: { id: true, name: true, shortcode: true } }, student_type_rules: { include: { student_type: { select: { id: true, name: true } } } } },
+});
+
 const createFeeType = async (req, res) => {
   try {
     const { name, code, description, amount, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type, added_to_term_fee, billing } = req.body;
+    const rules = await readTypeRules(req.body.student_type_rules);
 
     // Check if code already exists
     const existing = await prisma.feeType.findUnique({ where: { code } });
@@ -85,15 +119,15 @@ const createFeeType = async (req, res) => {
         // new fee types are not billed until it is chosen
         billing: 'NOT_BILLED',
         ...billingFields(billing),
-        applicant_type: cleanApplicantType(applicant_type),
-      },
-      include: {
-        course: { select: { id: true, name: true, shortcode: true } },
+        // choosing student types replaces the older KUCCPS/Direct setting
+        applicant_type: rules !== undefined ? null : cleanApplicantType(applicant_type),
       },
     });
+    await saveTypeRules(feeType.id, rules);
 
-    res.status(201).json({ message: 'Fee type created successfully', fee_type: feeType });
+    res.status(201).json({ message: 'Fee type created successfully', fee_type: await withRules(feeType.id) });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Create fee type error:', err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -103,8 +137,9 @@ const createFeeType = async (req, res) => {
 const updateFeeType = async (req, res) => {
   try {
     const { name, description, amount, is_active, is_required, is_disabled, applies_to, course_id, level, term_based, applicant_type, added_to_term_fee, billing } = req.body;
+    const rules = await readTypeRules(req.body.student_type_rules);
 
-    const feeType = await prisma.feeType.update({
+    await prisma.feeType.update({
       where: { id: req.params.id },
       data: {
         ...(name !== undefined && { name }),
@@ -119,15 +154,16 @@ const updateFeeType = async (req, res) => {
         ...(is_disabled !== undefined && { is_disabled }),
         ...(added_to_term_fee !== undefined && { added_to_term_fee }),
         ...billingFields(billing),
-        ...(applicant_type !== undefined && { applicant_type: cleanApplicantType(applicant_type) }),
-      },
-      include: {
-        course: { select: { id: true, name: true, shortcode: true } },
+        // choosing student types replaces the older KUCCPS/Direct setting
+        ...(rules !== undefined ? { applicant_type: null } : applicant_type !== undefined && { applicant_type: cleanApplicantType(applicant_type) }),
       },
     });
+    await saveTypeRules(req.params.id, rules);
 
-    res.json({ message: 'Fee type updated successfully', fee_type: feeType });
+    res.json({ message: 'Fee type updated successfully', fee_type: await withRules(req.params.id) });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Fee type not found' });
     console.error('Update fee type error:', err);
     res.status(500).json({ error: 'Server error' });
   }

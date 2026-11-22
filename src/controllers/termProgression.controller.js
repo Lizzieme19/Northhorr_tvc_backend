@@ -70,9 +70,14 @@ const getStudentHistory = async (req, res) => {
     const progressions = await prisma.studentProgression.findMany({
       where: { student_id },
       include: {
-        term: { select: { name: true, academic_year: true } },
+        term: { select: { name: true, academic_year: true, start_date: true } },
         promoter: { select: { email: true } },
       },
+    });
+    // the terms the student was enrolled in: each stage starts when its first term starts
+    const balances = await prisma.studentBalance.findMany({
+      where: { student_id },
+      select: { level: true, term: { select: { name: true, academic_year: true, start_date: true } } },
     });
 
     res.json({
@@ -85,7 +90,7 @@ const getStudentHistory = async (req, res) => {
         department: student.department?.name || null,
         status: student.status,
       },
-      stages: buildTimeline(student, progressions),
+      stages: buildTimeline(student, progressions, balances),
     });
   } catch (err) {
     console.error('Get student history error:', err);

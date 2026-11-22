@@ -9,6 +9,7 @@ const {
   getApplications,
   getApplicationById,
   updateApplicationStatus,
+  bulkApproveApplications,
   importKuccps,
   getMyApplication,
   updateApplicationDocuments,
@@ -314,6 +315,31 @@ router.patch('/:id/status', authenticate, requireRoles('ADMIN', 'REGISTRAR'), up
  *         description: Application updated successfully
  */
 router.patch('/:id/documents', authenticate, requireRoles('ADMIN', 'REGISTRAR'), docUpload, updateApplicationDocuments);
+
+/**
+ * @swagger
+ * /api/applications/bulk-approve:
+ *   post:
+ *     summary: Approve many applications at once, giving the new students a chosen student type (Admin/Registrar)
+ *     tags: [Applications]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               application_ids: { type: array, items: { type: string } }
+ *               student_type_id: { type: string, description: "Empty = follow how each applicant applied" }
+ *               intake: { type: string }
+ *               year: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Which were approved, which need review, which failed
+ */
+router.post('/bulk-approve', authenticate, requireRoles('ADMIN', 'REGISTRAR'), bulkApproveApplications);
 
 /**
  * @swagger

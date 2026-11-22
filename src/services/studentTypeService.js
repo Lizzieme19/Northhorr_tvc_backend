@@ -57,4 +57,15 @@ const assignType = async (studentIds, typeId, { fromTerm = null, apply = false }
   return { type, from_term: from ? { id: from.id, name: from.name, academic_year: from.academic_year } : null, students: moved, impact: applied, applied: true };
 };
 
-module.exports = { typeIdForApplication, defaultFromTerm, assignType };
+// The type chosen on approval, checked; with none chosen it follows how the applicant applied
+const typeIdForApproval = async (explicitId, applicationType) => {
+  if (explicitId) {
+    const t = await prisma.studentType.findUnique({ where: { id: explicitId } });
+    if (!t) throw Object.assign(new Error('That student type was not found'), { status: 400 });
+    if (!t.is_active) throw Object.assign(new Error(`${t.name} is switched off`), { status: 400 });
+    return t.id;
+  }
+  return typeIdForApplication(applicationType);
+};
+
+module.exports = { typeIdForApplication, typeIdForApproval, defaultFromTerm, assignType };

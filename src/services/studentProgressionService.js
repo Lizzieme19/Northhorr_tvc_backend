@@ -135,20 +135,40 @@ const progressStudent = async (opts) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const startOf = (p) => p.effective_date || p.created_at;
 
-const buildTimeline = (student, progressions = []) => {
+const levelKey = (l) => String(l || '').replace(/\s+/g, '').toLowerCase();
+
+// A stage starts when the first term of that stage starts: the term the student was enrolled in then, not the day
+// the record was made or the progression was typed in. balances: the student's term rows, each with its term.
+const buildTimeline = (student, progressions = [], balances = []) => {
   const entries = [...progressions].sort((a, b) => new Date(startOf(a)) - new Date(startOf(b)));
   const first = entries[0];
   // Progressions recorded before intake history existed have no intake/year at all
   const anyIntakeRecorded = entries.some((e) => e.from_intake || e.to_intake);
 
+  const termRows = balances
+    .filter((b) => b.term && b.term.start_date)
+    .map((b) => ({ level: b.level, start: new Date(b.term.start_date), label: `${b.term.name} (${b.term.academic_year})` }))
+    .sort((x, y) => x.start - y.start);
+  // the earliest term at this level, within [notBefore, before)
+  const firstTermAt = (level, notBefore, before) =>
+    termRows.find((t) => levelKey(t.level) === levelKey(level) && (!notBefore || t.start >= notBefore) && (!before || t.start < before)) || null;
+
+  // the term each later stage was entered in (progressions made for a term carry it)
+  const entryTerm = (e) => (e.term && e.term.start_date ? { start: new Date(e.term.start_date), label: `${e.term.name} (${e.term.academic_year})` } : null);
+
   const stages = [];
+  const firstLevel = first ? first.from_level : student.level;
+  const firstTerm = firstTermAt(firstLevel, null, first ? (entryTerm(first)?.start || null) : null)
+    // a record whose terms are all under another level: the very first term it was enrolled in
+    || termRows.find((t) => !first || !entryTerm(first) || t.start < entryTerm(first).start) || null;
   stages.push({
-    level: first ? first.from_level : student.level,
+    level: firstLevel,
     admission_no: first ? first.old_admission_no : student.admission_no,
     intake: first ? (first.from_intake || (anyIntakeRecorded ? null : student.intake)) : student.intake,
     year: first ? (first.from_year ?? (anyIntakeRecorded ? null : student.year)) : student.year,
     course: first ? (first.from_course_name || student.course?.name || null) : (student.course?.name || null),
-    started_at: first?.from_started_at || student.created_at,
+    started_at: firstTerm ? firstTerm.start : (first?.from_started_at || student.created_at),
+    start_term: firstTerm ? firstTerm.label : null,
     kind: 'ADMISSION',
     notes: null,
     term: null,
@@ -156,21 +176,28 @@ const buildTimeline = (student, progressions = []) => {
     recorded_by: null,
   });
 
-  for (const e of entries) {
+  entries.forEach((e, i) => {
+    const prevStart = stages[stages.length - 1].started_at ? new Date(stages[stages.length - 1].started_at) : null;
+    const nextTerm = entries[i + 1] ? entryTerm(entries[i + 1]) : null;
+    // a progression made for a term starts the new stage with that term; a linked older record starts with the
+    // first term the student was enrolled in at the new level
+    const direct = e.kind === 'LINKED' ? null : entryTerm(e);
+    const t = direct || (prevStart ? (() => { const x = firstTermAt(e.to_level, new Date(prevStart.getTime() + 1), nextTerm?.start || null); return x ? { start: x.start, label: x.label } : null; })() : null);
     stages.push({
       level: e.to_level,
       admission_no: e.new_admission_no || e.old_admission_no,
       intake: e.to_intake || null,
       year: e.to_year ?? null,
       course: e.to_course_name || student.course?.name || null,
-      started_at: startOf(e),
+      started_at: t ? t.start : startOf(e),
+      start_term: t ? t.label : null,
       kind: e.kind || 'PROMOTION',
       notes: e.notes || null,
       term: e.term ? `${e.term.name} (${e.term.academic_year})` : null,
       fee_clearance: e.fee_clearance,
       recorded_by: e.promoter?.email || null,
     });
-  }
+  });
 
   return stages.map((st, i) => {
     const next = stages[i + 1];
