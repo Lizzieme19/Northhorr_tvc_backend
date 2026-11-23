@@ -4,8 +4,10 @@ const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
 const c = require('../controllers/reportCenter.controller');
 
-// Each report checks the person's role itself; finance reports are for Admin and Finance only.
-const who = requireRoles('ADMIN', 'FINANCE', 'REGISTRAR');
+// Each report checks the person's role itself: fee reports are for Admin and Finance, applications for Admin, Registrar
+// and department heads, requisitions for Admin, Procurement and department heads. A department head only ever gets
+// their own department.
+const who = requireRoles('ADMIN', 'FINANCE', 'REGISTRAR', 'DEPT_HEAD', 'PROCUREMENT');
 
 /**
  * @swagger
@@ -20,6 +22,20 @@ const who = requireRoles('ADMIN', 'FINANCE', 'REGISTRAR');
  *         description: The reports
  */
 router.get('/catalog', authenticate, who, c.catalog);
+
+/**
+ * @swagger
+ * /api/reports/filters:
+ *   get:
+ *     summary: Choices for the report filter boxes, limited to what this person may see
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Departments, courses, terms, levels, statuses and more
+ */
+router.get('/filters', authenticate, who, c.filters);
 
 /**
  * @swagger
@@ -40,7 +56,7 @@ router.get('/my-statement/pdf', authenticate, requireRoles('STUDENT'), c.myState
  * /api/reports/{id}/preview:
  *   get:
  *     summary: Build a report and return it for viewing on screen, before downloading
- *     description: Ids - fee-balances, fee-collections, fee-summary, student-register. Query takes the filters the report lists in the catalog, plus group_by and sort.
+ *     description: Ids - fee-balances, fee-collections, fee-summary, student-statement, student-register, applications, requisitions. Query takes the filters the report lists in the catalog, plus group_by and sort.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []

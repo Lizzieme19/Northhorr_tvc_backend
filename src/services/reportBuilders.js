@@ -643,6 +643,167 @@ const studentStatement = async (q, { audience }) => {
 };
 const thousandsText = (n) => Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6. APPLICATIONS
+// ═════════════════════════════════════════════════════════════════════════════
+const APP_STATUSES = ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED'];
+const appStatusLabel = (v) => ({ PENDING: 'Pending', UNDER_REVIEW: 'Under review', APPROVED: 'Approved', REJECTED: 'Rejected' }[v] || cap(v));
+
+const applicationsReport = async (q, { full }) => {
+  const where = {};
+  if (q.department_id) where.department_id = q.department_id;
+  if (q.course_id) where.course_id = q.course_id;
+  if (q.level) where.level_applied = q.level;
+  if (q.app_status && APP_STATUSES.includes(q.app_status)) where.status = q.app_status;
+  if (q.app_type && ['KUCCPS', 'DIRECT'].includes(q.app_type)) where.type = q.app_type;
+  if (q.gender) where.gender = { equals: q.gender, mode: 'insensitive' };
+  const from = parseDay(q.date_from); const to = parseDay(q.date_to, true);
+  if (from || to) where.created_at = { ...(from && { gte: from }), ...(to && { lte: to }) };
+  if (q.search && String(q.search).trim()) {
+    const t = String(q.search).trim();
+    where.OR = ['application_no', 'surname', 'other_names', 'phone', 'email', 'id_number'].map((f) => ({ [f]: { contains: t, mode: 'insensitive' } }));
+  }
+  const apps = await prisma.application.findMany({
+    where,
+    include: { course: { select: { name: true } }, department: { select: { name: true } }, student: { select: { admission_no: true } } },
+    orderBy: { created_at: 'desc' },
+  });
+
+  const rows = apps.map((a) => ({
+    application_no: a.application_no, name: fullName(a), gender: a.gender || '', phone: a.phone || '',
+    course: a.course?.name || 'No course chosen', department: a.department?.name || 'No department', level: a.level_applied || '',
+    type: cap(a.type), status: appStatusLabel(a.status), applied: a.created_at, admission_no: a.student?.admission_no || '',
+  }));
+  const filterLines = [];
+  const [dept, course] = await Promise.all([
+    q.department_id ? prisma.department.findUnique({ where: { id: q.department_id }, select: { name: true } }) : null,
+    q.course_id ? prisma.course.findUnique({ where: { id: q.course_id }, select: { name: true } }) : null,
+  ]);
+  if (dept) filterLines.push(['Department', dept.name]);
+  if (course) filterLines.push(['Course', course.name]);
+  if (q.level) filterLines.push(['Level applied', q.level]);
+  if (q.app_status) filterLines.push(['Status', appStatusLabel(q.app_status)]);
+  if (q.app_type) filterLines.push(['Entry type', cap(q.app_type)]);
+  if (q.gender) filterLines.push(['Gender', q.gender]);
+  if (q.date_from) filterLines.push(['Applied from', q.date_from]);
+  if (q.date_to) filterLines.push(['Applied to', q.date_to]);
+  if (q.search) filterLines.push(['Search', q.search]);
+
+  const mode = ['course', 'status', 'department', 'type', 'none'].includes(q.group_by) ? q.group_by : (q.course_id ? 'status' : 'course');
+  const keyOf = (r) => ({ course: `${r.department} — ${r.course}`, status: r.status, department: r.department, type: r.type, none: 'Applications' }[mode]);
+  const map = new Map();
+  rows.forEach((r) => { const k = keyOf(r); if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+  const hasAdm = rows.some((r) => r.admission_no);
+  const columns = [
+    { key: 'n', label: '#', type: 'int', w: 3 }, { key: 'application_no', label: 'Application no.', w: 17 }, { key: 'name', label: 'Applicant', w: 24 },
+    { key: 'gender', label: 'Gender', w: 7 }, { key: 'level', label: 'Level', w: 8 },
+    ...(mode !== 'type' ? [{ key: 'type', label: 'Entry', w: 8 }] : []),
+    ...(mode !== 'status' ? [{ key: 'status', label: 'Status', w: 10 }] : []),
+    { key: 'applied', label: 'Applied on', type: 'date', w: 10 }, { key: 'phone', label: 'Phone', w: 12 },
+    ...(hasAdm ? [{ key: 'admission_no', label: 'Admission no.', w: 14 }] : []),
+  ];
+  const sections = [...map.keys()].sort((a, b) => a.localeCompare(b)).map((k) => ({
+    heading: mode === 'none' ? 'Applications' : k,
+    columns, rows: map.get(k).map((r, i) => ({ ...r, n: i + 1 })),
+    subtotal: { label: `${map.get(k).length} application${map.get(k).length === 1 ? '' : 's'}`, values: {} },
+  }));
+  const by = (f, v) => rows.filter((r) => r[f] === v).length;
+  return {
+    title: 'Applications Report',
+    subtitle: filterLines.filter(([l]) => ['Department', 'Course', 'Level applied', 'Status', 'Entry type'].includes(l)).map(([, v]) => v).join('  ·  ') || 'All applications',
+    filters: filterLines,
+    kpis: [
+      { label: 'Applications', value: rows.length, type: 'int' }, { label: 'Pending', value: by('status', 'Pending'), type: 'int' },
+      { label: 'Under review', value: by('status', 'Under review'), type: 'int' }, { label: 'Approved', value: by('status', 'Approved'), type: 'int' },
+      { label: 'Rejected', value: by('status', 'Rejected'), type: 'int' }, { label: 'KUCCPS / Direct', value: `${by('type', 'Kuccps')} / ${by('type', 'Direct')}`, type: 'text' },
+    ],
+    sections: budgetSections(sections, full),
+    notes: [],
+    signoff: false,
+    flat: { columns: [{ key: 'application_no', label: 'Application no.' }, { key: 'name', label: 'Applicant' }, { key: 'gender', label: 'Gender' }, { key: 'department', label: 'Department' }, { key: 'course', label: 'Course' }, { key: 'level', label: 'Level applied' }, { key: 'type', label: 'Entry' }, { key: 'status', label: 'Status' }, { key: 'applied', label: 'Applied on', type: 'date' }, { key: 'phone', label: 'Phone' }, { key: 'admission_no', label: 'Admission no.' }], rows },
+  };
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7. PURCHASE REQUISITIONS
+// ═════════════════════════════════════════════════════════════════════════════
+const REQ_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'ORDERED', 'COMPLETED', 'CANCELLED'];
+const reqStatusLabel = (v) => ({ PENDING_APPROVAL: 'Awaiting approval' }[v] || cap(v));
+
+const requisitionsReport = async (q, { full }) => {
+  const where = {};
+  if (q.department_id) where.department_id = q.department_id;
+  if (q.req_status && REQ_STATUSES.includes(q.req_status)) where.status = q.req_status;
+  const from = parseDay(q.date_from); const to = parseDay(q.date_to, true);
+  if (from || to) where.created_at = { ...(from && { gte: from }), ...(to && { lte: to }) };
+  if (q.search && String(q.search).trim()) {
+    const t = String(q.search).trim();
+    where.OR = [{ requisition_no: { contains: t, mode: 'insensitive' } }, { unit_name: { contains: t, mode: 'insensitive' } }, { justification: { contains: t, mode: 'insensitive' } }];
+  }
+  const reqs = await prisma.purchaseRequisition.findMany({
+    where,
+    include: { department: { select: { name: true } }, requester: { select: { email: true } }, items: true },
+    orderBy: { created_at: 'desc' },
+  });
+  const rows = reqs.map((r) => {
+    const itemsTotal = round2(r.items.reduce((t, i) => t + (i.total_price ?? ((i.unit_price || 0) * i.quantity)), 0));
+    return {
+      requisition_no: r.requisition_no, unit: r.department?.name || r.unit_name || 'Unassigned', requested_by: (r.requester?.email || '').split('@')[0],
+      status: reqStatusLabel(r.status), raw_status: r.status, priority: cap(r.priority), items: r.items.length, amount: round2(r.total_amount ?? itemsTotal),
+      raised: r.created_at, approved: r.approved_at || '', _items: r.items,
+    };
+  });
+  const filterLines = [];
+  const dept = q.department_id ? await prisma.department.findUnique({ where: { id: q.department_id }, select: { name: true } }) : null;
+  if (dept) filterLines.push(['Department', dept.name]);
+  if (q.req_status) filterLines.push(['Status', reqStatusLabel(q.req_status)]);
+  if (q.date_from) filterLines.push(['Raised from', q.date_from]);
+  if (q.date_to) filterLines.push(['Raised to', q.date_to]);
+  if (q.search) filterLines.push(['Search', q.search]);
+
+  const mode = ['department', 'status', 'none'].includes(q.group_by) ? q.group_by : 'department';
+  const map = new Map();
+  rows.forEach((r) => { const k = mode === 'status' ? r.status : mode === 'department' ? r.unit : 'Requisitions'; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+  const columns = [
+    { key: 'n', label: '#', type: 'int', w: 3 }, { key: 'requisition_no', label: 'Requisition no.', w: 16 },
+    ...(mode !== 'department' ? [{ key: 'unit', label: 'Department / unit', w: 20 }] : []),
+    { key: 'requested_by', label: 'Requested by', w: 13 }, { key: 'priority', label: 'Priority', w: 8 },
+    ...(mode !== 'status' ? [{ key: 'status', label: 'Status', w: 13 }] : []),
+    { key: 'items', label: 'Items', type: 'int', w: 6 }, { key: 'amount', label: 'Amount (KES)', type: 'money', w: 13 },
+    { key: 'raised', label: 'Raised', type: 'date', w: 10 }, { key: 'approved', label: 'Approved', type: 'date', w: 10 },
+  ];
+  const sections = [...map.keys()].sort((a, b) => a.localeCompare(b)).map((k) => {
+    const rs = map.get(k);
+    return { heading: mode === 'none' ? 'Requisitions' : k, columns, rows: rs.map((r, i) => ({ ...r, n: i + 1 })), subtotal: { label: `${rs.length} requisition${rs.length === 1 ? '' : 's'}`, values: { items: rs.reduce((t, r) => t + r.items, 0), amount: sum(rs, 'amount') } } };
+  });
+  if (q.detail === 'items' && rows.length) {
+    const itemRows = [];
+    rows.forEach((r) => r._items.forEach((i, ix) => itemRows.push({ requisition_no: ix === 0 ? r.requisition_no : '', item: i.item_name, kind: i.item_type ? cap(i.item_type) : '', qty: i.quantity, unit: i.unit_of_measure || '', unit_price: round2(i.unit_price || 0), total: round2(i.total_price ?? ((i.unit_price || 0) * i.quantity)) })));
+    sections.push({
+      heading: 'Items requested',
+      columns: [{ key: 'requisition_no', label: 'Requisition', w: 16 }, { key: 'item', label: 'Item', w: 30 }, { key: 'kind', label: 'Type', w: 10 }, { key: 'qty', label: 'Qty', type: 'int', w: 6 }, { key: 'unit', label: 'Unit', w: 8 }, { key: 'unit_price', label: 'Unit price (KES)', type: 'money', w: 14 }, { key: 'total', label: 'Total (KES)', type: 'money', w: 14 }],
+      rows: itemRows, subtotal: { label: 'Total', values: { total: sum(itemRows, 'total') } },
+    });
+  }
+  const val = (st) => sum(rows.filter((r) => r.raw_status === st), 'amount');
+  const cnt = (st) => rows.filter((r) => r.raw_status === st).length;
+  return {
+    title: 'Purchase Requisitions Report',
+    subtitle: filterLines.filter(([l]) => ['Department', 'Status'].includes(l)).map(([, v]) => v).join('  ·  ') || 'All requisitions',
+    filters: filterLines,
+    kpis: [
+      { label: 'Requisitions', value: rows.length, type: 'int' }, { label: 'Total value', value: sum(rows, 'amount'), type: 'money' },
+      { label: 'Awaiting approval', value: cnt('PENDING_APPROVAL'), type: 'int' }, { label: 'Approved value', value: round2(val('APPROVED') + val('ORDERED') + val('COMPLETED')), type: 'money' },
+      { label: 'Rejected', value: cnt('REJECTED'), type: 'int' }, { label: 'Ordered / completed', value: cnt('ORDERED') + cnt('COMPLETED'), type: 'int' },
+    ],
+    sections: budgetSections(sections, full),
+    notes: ['A requisition with no amount entered is valued from the prices of its items.'],
+    signoff: false,
+    flat: { columns: [{ key: 'requisition_no', label: 'Requisition no.' }, { key: 'unit', label: 'Department / unit' }, { key: 'requested_by', label: 'Requested by' }, { key: 'priority', label: 'Priority' }, { key: 'status', label: 'Status' }, { key: 'items', label: 'Items', type: 'int' }, { key: 'amount', label: 'Amount (KES)', type: 'money' }, { key: 'raised', label: 'Raised', type: 'date' }, { key: 'approved', label: 'Approved', type: 'date' }], rows },
+  };
+};
+
 // ── the list of reports offered, and which filters each one understands ──
 const STUDENT_FILTERS = ['department_id', 'course_id', 'level', 'intake', 'year', 'status', 'student_type_id', 'gender', 'helb', 'search'];
 const CATALOG = [
@@ -675,23 +836,55 @@ const CATALOG = [
     build: studentStatement,
   },
   {
-    id: 'student-register', group: 'Students', title: 'Student register', roles: ['ADMIN', 'FINANCE', 'REGISTRAR'],
+    id: 'student-register', group: 'Students', title: 'Student register', roles: ['ADMIN', 'FINANCE', 'REGISTRAR', 'DEPT_HEAD'],
     blurb: 'A clean class list by course and level, with counts by gender and status.',
     filters: [...STUDENT_FILTERS, 'term_id'],
     options: { group_by: [['auto', 'Automatic (follows the filters)'], ['department', 'Department'], ['course', 'Course'], ['level', 'Level'], ['type', 'Student type'], ['none', 'One list']], sort: [['admission', 'Admission number'], ['name', 'Name']] },
     build: studentRegister,
   },
+  {
+    id: 'applications', group: 'Students', title: 'Applications', roles: ['ADMIN', 'REGISTRAR', 'DEPT_HEAD'],
+    blurb: 'Who applied, for what, and where each application stands, grouped by course, status or entry type.',
+    filters: ['department_id', 'course_id', 'level', 'app_status', 'app_type', 'gender', 'date_from', 'date_to', 'search'],
+    date_label: 'Applied', level_label: 'Level applied',
+    options: { group_by: [['auto', 'Automatic (follows the filters)'], ['course', 'Course'], ['status', 'Status'], ['department', 'Department'], ['type', 'Entry type (KUCCPS / Direct)'], ['none', 'One list']] },
+    build: applicationsReport,
+  },
+  {
+    id: 'requisitions', group: 'Procurement', title: 'Purchase requisitions', roles: ['ADMIN', 'PROCUREMENT', 'DEPT_HEAD'],
+    blurb: 'What was asked for, by whom, how much it is worth, and where each requisition is in the approval and ordering process.',
+    filters: ['department_id', 'req_status', 'date_from', 'date_to', 'search'],
+    date_label: 'Raised',
+    options: { group_by: [['department', 'Department or unit'], ['status', 'Status'], ['none', 'One list']], detail: [['summary', 'Requisitions only'], ['items', 'With every item requested']] },
+    build: requisitionsReport,
+  },
 ];
 
 const catalogFor = (role) => CATALOG.filter((r) => r.roles.includes(role)).map(({ build, roles, ...rest }) => rest);
 
-const buildReport = async (id, query, { role, full = false, audience } = {}) => {
+// A department head sees their own department only: it is forced on every report, whatever the request says
+const scopeFor = async (role, userId) => {
+  if (role !== 'DEPT_HEAD') return null;
+  const dept = userId ? await prisma.department.findFirst({ where: { head_user_id: userId }, select: { id: true, name: true } }) : null;
+  if (!dept) throw fail('You are not set as the head of a department, so there are no reports for you yet. Ask the administrator.', 403);
+  return { department_id: dept.id, department_name: dept.name };
+};
+
+const buildReport = async (id, query, { role, userId, full = false, audience } = {}) => {
   const def = CATALOG.find((r) => r.id === id);
   if (!def) throw fail('Unknown report', 404);
   if (!def.roles.includes(role)) throw fail('You do not have access to this report', 403);
   // only the filters this report understands are applied
   const q = {};
-  for (const k of [...def.filters, 'group_by', 'sort']) if (query[k] !== undefined && query[k] !== '') q[k] = query[k];
+  for (const k of [...def.filters, 'group_by', 'sort', 'detail']) if (query[k] !== undefined && query[k] !== '') q[k] = query[k];
+  const scope = await scopeFor(role, userId);
+  if (scope) {
+    q.department_id = scope.department_id;
+    if (q.course_id) {
+      const c = await prisma.course.findUnique({ where: { id: q.course_id }, select: { department_id: true } });
+      if (!c || c.department_id !== scope.department_id) delete q.course_id; // another department's course is not theirs to ask for
+    }
+  }
   const doc = await def.build(q, { full, audience });
   // internal working data is not part of the report that is sent out
   const clean = (rows) => rows.map(({ termRows, ...r }) => r);
@@ -700,4 +893,4 @@ const buildReport = async (id, query, { role, full = false, audience } = {}) => 
   return out;
 };
 
-module.exports = { buildReport, catalogFor, CATALOG, STUDENT_STATUSES, INTAKES, BALANCE_STATUSES };
+module.exports = { buildReport, catalogFor, scopeFor, APP_STATUSES, REQ_STATUSES, CATALOG, STUDENT_STATUSES, INTAKES, BALANCE_STATUSES };
