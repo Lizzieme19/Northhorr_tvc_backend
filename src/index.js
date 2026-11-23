@@ -38,6 +38,7 @@ const settingsRoutes = require('./routes/settings.routes');
 const profileOptionsRoutes = require('./routes/profileOptions.routes');
 const studentTypesRoutes = require('./routes/studentTypes.routes');
 const studentMergesRoutes = require('./routes/studentMerges.routes');
+const reportCenterRoutes = require('./routes/reportCenter.routes');
 
 const app = express();
 
@@ -118,6 +119,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/profile-options', profileOptionsRoutes);
 app.use('/api/student-types', studentTypesRoutes);
 app.use('/api/student-merges', studentMergesRoutes);
+app.use('/api/reports', reportCenterRoutes);
 
 // 404 handler
 app.use((req, res) => {

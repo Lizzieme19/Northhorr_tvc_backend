@@ -1228,6 +1228,8 @@ module.exports = {
   loadStyle,
   cleanStyle,
   DEFAULT_STYLE,
+  buildPDF,
+  drawHeader,
   generateAdmissionLetter,
   generateLetterOfAcceptance,
   generateAdmissionForTraining,

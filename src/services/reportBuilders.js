@@ -1,0 +1,529 @@
+const prisma = require('../config/db');
+const { buildStudentWhere, resolveFeeFilterIds, STUDENT_STATUSES, INTAKES, BALANCE_STATUSES } = require('../utils/studentFilters');
+const { summarizeBalances, round2 } = require('../utils/feeTotals');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REPORTS
+// Each report turns the filters into a structured document:
+//   { title, subtitle, filters: [[label, value]], kpis: [{label, value, type}], sections: [{ heading, columns, rows,
+//     subtotal }], notes }
+// The same document feeds the on-screen preview, the PDF (with the college letterhead) and the Excel file, so all
+// three always say the same thing. The title, the grouping and the columns follow the filters that were chosen.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PREVIEW_ROW_BUDGET = 400;
+
+const cap = (v) => (v ? String(v).charAt(0) + String(v).slice(1).toLowerCase() : '');
+const fullName = (a) => [a?.surname, a?.other_names].filter(Boolean).join(' ');
+const levelNum = (l) => { const m = String(l || '').match(/\d+/); return m ? parseInt(m[0], 10) : 99; };
+const byLevel = (a, b) => levelNum(a) - levelNum(b) || String(a).localeCompare(String(b));
+const pct = (part, whole) => (whole > 0.009 ? round2((part / whole) * 100) : 0);
+const termName = (t) => (t ? `${t.name} (${t.academic_year})` : '');
+const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+// ── what the filters say, in words ──
+const describeFilters = async (q, relevant) => {
+  const use = (k) => !relevant || relevant.includes(k);
+  const [dept, course, term, feeType, type] = await Promise.all([
+    use('department_id') && q.department_id ? prisma.department.findUnique({ where: { id: q.department_id }, select: { name: true } }) : null,
+    use('course_id') && q.course_id ? prisma.course.findUnique({ where: { id: q.course_id }, select: { name: true } }) : null,
+    use('term_id') && q.term_id ? prisma.term.findUnique({ where: { id: q.term_id }, select: { name: true, academic_year: true } }) : null,
+    use('fee_type_id') && q.fee_type_id ? prisma.feeType.findUnique({ where: { id: q.fee_type_id }, select: { name: true } }) : null,
+    use('student_type_id') && q.student_type_id ? prisma.studentType.findUnique({ where: { id: q.student_type_id }, select: { name: true } }) : null,
+  ]);
+  const lines = [];
+  if (dept) lines.push(['Department', dept.name]);
+  if (course) lines.push(['Course', course.name]);
+  if (use('level') && q.level) lines.push(['Level', q.level]);
+  if (use('intake') && q.intake) lines.push(['Intake', cap(q.intake)]);
+  if (use('year') && q.year) lines.push(['Year', q.year]);
+  if (use('status') && q.status) lines.push(['Student status', cap(q.status)]);
+  if (type) lines.push(['Student type', type.name]);
+  if (use('gender') && q.gender) lines.push(['Gender', q.gender]);
+  if (use('helb') && q.helb) lines.push(['HELB', q.helb === 'true' ? 'Applied' : 'Not applied']);
+  if (term) lines.push(['Term', termName(term)]);
+  if (use('fee_status') && q.fee_status) lines.push(['Fee status', cap(q.fee_status)]);
+  if (use('outstanding_only') && q.outstanding_only === 'true') lines.push(['Balance', 'Outstanding only']);
+  if (use('min_balance') && q.min_balance) lines.push(['Owing at least', `KES ${Number(q.min_balance).toLocaleString('en-US')}`]);
+  if (feeType) lines.push(['Fee type', feeType.name]);
+  if (use('date_from') && q.date_from) lines.push(['From', q.date_from]);
+  if (use('date_to') && q.date_to) lines.push(['To', q.date_to]);
+  if (use('search') && q.search) lines.push(['Search', q.search]);
+  return lines;
+};
+
+// "Term 2 · Social Work · Level 5": the part of the filters that says which students and when
+const scopeText = (lines) => {
+  const want = ['Term', 'Department', 'Course', 'Level', 'Intake', 'Year', 'Student type', 'Student status', 'Fee type'];
+  const parts = want.map((k) => lines.find(([l]) => l === k)).filter(Boolean).map(([, v]) => v);
+  return parts.join('  ·  ') || 'All students';
+};
+
+// ── the students in scope, with their fee position ──
+// One row per student. With a term chosen the row is that term; otherwise it is everything the student was billed.
+const loadStudentFeeRows = async (q) => {
+  const studentWhere = buildStudentWhere(q);
+  const feeIds = await resolveFeeFilterIds(q);
+  if (feeIds) studentWhere.id = { in: feeIds };
+
+  const balances = await prisma.studentBalance.findMany({
+    where: { student: studentWhere, ...(q.term_id ? { term_id: q.term_id } : {}) },
+    include: {
+      term: { select: { id: true, name: true, academic_year: true, start_date: true } },
+      student: {
+        select: {
+          id: true, admission_no: true, level: true, intake: true, year: true, status: true,
+          student_type: { select: { name: true } },
+          application: { select: { surname: true, other_names: true, gender: true, phone: true } },
+          course: { select: { id: true, name: true } },
+          department: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+
+  const byStudent = new Map();
+  for (const b of balances) {
+    if (!byStudent.has(b.student_id)) byStudent.set(b.student_id, { student: b.student, rows: [] });
+    byStudent.get(b.student_id).rows.push(b);
+  }
+
+  const statusOfRow = (s) => ({ PAID: 'Cleared', PARTIAL: 'Partial', PENDING: 'Unpaid', OVERDUE: 'Overdue' }[s] || cap(s));
+  const rows = [];
+  for (const { student, rows: rs } of byStudent.values()) {
+    const sorted = [...rs].sort((x, y) => new Date(x.term.start_date) - new Date(y.term.start_date));
+    let billed; let paid; let balance; let bf = null; let status; let termText;
+    if (q.term_id) {
+      const r = sorted[0];
+      billed = r.total_fees; paid = r.amount_paid; balance = r.balance; bf = r.previous_balance_carryover || 0;
+      status = statusOfRow(r.status); termText = termName(r.term);
+    } else {
+      const m = summarizeBalances(sorted);
+      billed = m.totalFees; paid = m.totalPaid; balance = m.outstanding;
+      const overdue = sorted.some((r) => r.status === 'OVERDUE');
+      status = balance <= 0.009 ? 'Cleared' : overdue ? 'Overdue' : paid > 0.009 ? 'Partial' : 'Unpaid';
+      termText = `${sorted.length} term${sorted.length === 1 ? '' : 's'}`;
+    }
+    rows.push({
+      id: student.id, admission_no: student.admission_no, name: fullName(student.application),
+      gender: student.application?.gender || '', phone: student.application?.phone || '',
+      course: student.course?.name || 'No course', department: student.department?.name || 'No department',
+      level: student.level, intake: cap(student.intake), year: student.year, student_status: cap(student.status),
+      type: student.student_type?.name || '', term: termText, terms: sorted.length,
+      billed: round2(billed), paid: round2(paid), balance: round2(balance), bf: bf === null ? null : round2(bf), status,
+      termRows: sorted,
+    });
+  }
+  return rows;
+};
+
+const sortRows = (rows, sort) => {
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name),
+    balance: (a, b) => b.balance - a.balance || a.name.localeCompare(b.name),
+    admission: (a, b) => a.admission_no.localeCompare(b.admission_no),
+  }[sort] || ((a, b) => a.admission_no.localeCompare(b.admission_no));
+  return [...rows].sort(by);
+};
+
+const sum = (arr, f) => round2(arr.reduce((s, x) => s + (Number(x[f]) || 0), 0));
+
+// How the students are split into sections: chosen by the person, or sensibly from the filters
+const pickGrouping = (q, allowed, fallbackFor) => {
+  const g = q.group_by && q.group_by !== 'auto' && allowed.includes(q.group_by) ? q.group_by : null;
+  if (g) return g;
+  return fallbackFor();
+};
+const autoGroupForStudents = (q) => (q.course_id ? 'level' : q.department_id ? 'course' : 'department');
+
+const groupLabelFor = (mode, r) => {
+  if (mode === 'course') return `${r.department} — ${r.course}`;
+  if (mode === 'level') return r.level;
+  if (mode === 'department') return r.department;
+  if (mode === 'type') return r.type || 'No student type';
+  return 'All students';
+};
+const groupRows = (rows, mode) => {
+  const map = new Map();
+  for (const r of rows) {
+    const k = groupLabelFor(mode, r);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  }
+  const keys = [...map.keys()].sort((a, b) => (mode === 'level' ? byLevel(a, b) : a.localeCompare(b)));
+  return keys.map((k) => ({ key: k, rows: map.get(k) }));
+};
+
+// Rows past the preview budget are left out of the on-screen copy; the PDF and Excel files carry every row
+const budgetSections = (sections, full) => {
+  if (full) return sections;
+  let left = PREVIEW_ROW_BUDGET;
+  return sections.map((s) => {
+    const total = s.rows.length;
+    if (total <= left) { left -= total; return { ...s, total_rows: total, omitted: 0 }; }
+    const kept = Math.max(left, 0); left = 0;
+    return { ...s, rows: s.rows.slice(0, kept), total_rows: total, omitted: total - kept };
+  });
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 1. FEE BALANCES & ARREARS
+// ═════════════════════════════════════════════════════════════════════════════
+const FEE_SCOPE_FILTERS = ['department_id', 'course_id', 'level', 'intake', 'year', 'status', 'student_type_id', 'term_id', 'fee_status', 'outstanding_only', 'helb', 'gender', 'search'];
+
+const feeBalances = async (q, { full }) => {
+  const filterLines = await describeFilters(q, [...FEE_SCOPE_FILTERS, 'min_balance']);
+  let rows = await loadStudentFeeRows(q);
+  const min = parseFloat(q.min_balance);
+  if (!isNaN(min)) rows = rows.filter((r) => r.balance >= min);
+  rows = sortRows(rows, q.sort === 'balance' || q.sort === 'name' ? q.sort : (q.outstanding_only === 'true' ? 'balance' : 'admission'));
+
+  const arrearsMode = q.outstanding_only === 'true' || !isNaN(min);
+  const mode = pickGrouping(q, ['department', 'course', 'level', 'type', 'none'], () => autoGroupForStudents(q));
+  const withBf = Boolean(q.term_id) && rows.some((r) => r.bf);
+
+  const columns = (m) => [
+    { key: 'n', label: '#', type: 'int', w: 3 },
+    { key: 'admission_no', label: 'Adm. No', w: 12 },
+    { key: 'name', label: 'Student', w: 25 },
+    ...(m === 'none' || m === 'department' || m === 'type' ? [{ key: 'course', label: 'Course', w: 20 }] : []),
+    ...(m !== 'level' ? [{ key: 'level', label: 'Level', w: 7 }] : []),
+    ...(q.term_id ? [] : [{ key: 'term', label: 'Billed for', w: 8 }]),
+    ...(withBf ? [{ key: 'bf', label: 'B/F (KES)', type: 'money', w: 11 }] : []),
+    { key: 'billed', label: 'Billed (KES)', type: 'money', w: 12 },
+    { key: 'paid', label: 'Paid (KES)', type: 'money', w: 12 },
+    { key: 'balance', label: q.term_id ? 'Balance (KES)' : 'Outstanding (KES)', type: 'money', w: 13 },
+    { key: 'status', label: 'Status', w: 8 },
+  ];
+
+  const sections = groupRows(rows, mode).map((g) => ({
+    heading: mode === 'none' ? 'Students' : g.key,
+    columns: columns(mode),
+    rows: g.rows.map((r, i) => ({ ...r, n: i + 1 })),
+    subtotal: { label: `Subtotal · ${g.rows.length} student${g.rows.length === 1 ? '' : 's'}`, values: { billed: sum(g.rows, 'billed'), paid: sum(g.rows, 'paid'), balance: sum(g.rows, 'balance'), ...(withBf ? { bf: sum(g.rows, 'bf') } : {}) } },
+  }));
+
+  // a short count by fee status closes the report
+  const statuses = ['Cleared', 'Partial', 'Unpaid', 'Overdue'].map((s) => {
+    const rs = rows.filter((r) => r.status === s);
+    return { status: s, students: rs.length, billed: sum(rs, 'billed'), paid: sum(rs, 'paid'), balance: sum(rs, 'balance') };
+  }).filter((x) => x.students > 0);
+  if (rows.length) {
+    sections.push({
+      heading: 'Summary by fee status',
+      columns: [
+        { key: 'status', label: 'Fee status', w: 16 }, { key: 'students', label: 'Students', type: 'int', w: 10 },
+        { key: 'billed', label: 'Billed (KES)', type: 'money', w: 14 }, { key: 'paid', label: 'Paid (KES)', type: 'money', w: 14 },
+        { key: 'balance', label: q.term_id ? 'Balance (KES)' : 'Outstanding (KES)', type: 'money', w: 16 },
+      ],
+      rows: statuses,
+      subtotal: { label: 'Total', values: { students: rows.length, billed: sum(rows, 'billed'), paid: sum(rows, 'paid'), balance: sum(rows, 'balance') } },
+    });
+  }
+
+  const billed = sum(rows, 'billed'); const paid = sum(rows, 'paid');
+  const owing = rows.filter((r) => r.balance > 0.009);
+  const notes = [];
+  if (!q.term_id) notes.push('Outstanding is what was billed minus what was paid across every term the student was billed for. Debt carried from an earlier term is counted once.');
+  else notes.push('Balances are for the chosen term and include any balance brought forward (B/F) from earlier terms.');
+
+  return {
+    title: arrearsMode ? 'Outstanding Fee Balances' : 'Fee Balances Report',
+    subtitle: scopeText(filterLines),
+    filters: filterLines,
+    kpis: [
+      { label: 'Students', value: rows.length, type: 'int' },
+      { label: 'Total billed', value: billed, type: 'money' },
+      { label: 'Total paid', value: paid, type: 'money' },
+      { label: q.term_id ? 'Balance due (incl. B/F)' : 'Outstanding', value: sum(owing, 'balance'), type: 'money' },
+      { label: 'Collection rate', value: pct(paid, billed), type: 'percent' },
+      { label: 'Students owing', value: owing.length, type: 'int' },
+    ],
+    sections: budgetSections(sections, full),
+    notes,
+    signoff: true,
+    flat: { columns: [
+      { key: 'admission_no', label: 'Adm. No' }, { key: 'name', label: 'Student' }, { key: 'department', label: 'Department' }, { key: 'course', label: 'Course' },
+      { key: 'level', label: 'Level' }, { key: 'intake', label: 'Intake' }, { key: 'year', label: 'Year' }, { key: 'type', label: 'Student type' }, { key: 'term', label: 'Term' },
+      ...(withBf ? [{ key: 'bf', label: 'B/F (KES)', type: 'money' }] : []),
+      { key: 'billed', label: 'Billed (KES)', type: 'money' }, { key: 'paid', label: 'Paid (KES)', type: 'money' }, { key: 'balance', label: q.term_id ? 'Balance (KES)' : 'Outstanding (KES)', type: 'money' }, { key: 'status', label: 'Status' },
+    ], rows },
+  };
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2. COLLECTIONS (PAYMENTS RECEIVED)
+// ═════════════════════════════════════════════════════════════════════════════
+const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
+const monthKey = (d) => new Date(d).toISOString().slice(0, 7);
+const monthLabel = (k) => new Date(`${k}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const dayLabel = (k) => new Date(`${k}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const parseDay = (v, end) => { if (!v) return null; const d = new Date(v); if (isNaN(d.getTime())) return null; if (end) d.setHours(23, 59, 59, 999); return d; };
+
+const feeCollections = async (q, { full }) => {
+  const scope = ['department_id', 'course_id', 'level', 'intake', 'year', 'status', 'student_type_id', 'term_id', 'fee_type_id', 'date_from', 'date_to', 'search', 'gender', 'helb'];
+  const filterLines = await describeFilters(q, scope);
+  const from = parseDay(q.date_from); const to = parseDay(q.date_to, true);
+
+  const records = await prisma.feeRecord.findMany({
+    where: {
+      student: buildStudentWhere(q),
+      ...(q.term_id ? { term_id: q.term_id } : {}),
+      ...(q.fee_type_id ? { fee_type_id: q.fee_type_id } : {}),
+      ...((from || to) ? { paid_at: { ...(from && { gte: from }), ...(to && { lte: to }) } } : {}),
+    },
+    include: {
+      feeType: { select: { name: true } },
+      term: { select: { name: true, academic_year: true } },
+      receiver: { select: { email: true } },
+      student: { select: { id: true, admission_no: true, level: true, application: { select: { surname: true, other_names: true } }, course: { select: { name: true } } } },
+    },
+    orderBy: { paid_at: 'asc' },
+  });
+
+  const rows = records.map((r) => ({
+    paid_at: r.paid_at, day: dayKey(r.paid_at), month: monthKey(r.paid_at), reference: r.reference_code || '',
+    admission_no: r.student.admission_no, student_id: r.student.id, name: fullName(r.student.application), course: r.student.course?.name || '', level: r.student.level,
+    term: r.term ? termName(r.term) : '', fee_type: r.feeType?.name || 'Unallocated', amount: round2(r.amount),
+    received_by: (r.receiver?.email || '').split('@')[0], notes: r.notes || '',
+  }));
+  const total = sum(rows, 'amount');
+
+  const groupBy = (keyFn) => {
+    const m = new Map();
+    for (const r of rows) { const k = keyFn(r); if (!m.has(k)) m.set(k, []); m.get(k).push(r); }
+    return m;
+  };
+
+  const sections = [];
+  if (rows.length) {
+    const byType = groupBy((r) => r.fee_type);
+    sections.push({
+      heading: 'Collections by fee type',
+      columns: [{ key: 'fee_type', label: 'Fee type', w: 24 }, { key: 'payments', label: 'Payments', type: 'int', w: 10 }, { key: 'amount', label: 'Amount (KES)', type: 'money', w: 16 }, { key: 'share', label: 'Share', type: 'percent', w: 9 }],
+      rows: [...byType.entries()].map(([k, rs]) => ({ fee_type: k, payments: rs.length, amount: sum(rs, 'amount'), share: pct(sum(rs, 'amount'), total) })).sort((a, b) => b.amount - a.amount),
+      subtotal: { label: 'Total', values: { payments: rows.length, amount: total, share: 100 } },
+    });
+
+    // by day when the period is short, otherwise by month
+    const spanDays = from && to ? (to - from) / 86400000 : (new Date(rows[rows.length - 1].paid_at) - new Date(rows[0].paid_at)) / 86400000;
+    const perDay = spanDays <= 45;
+    const periods = groupBy((r) => (perDay ? r.day : r.month));
+    let running = 0;
+    sections.push({
+      heading: perDay ? 'Collections by day' : 'Collections by month',
+      columns: [{ key: 'period', label: perDay ? 'Day' : 'Month', w: 22 }, { key: 'payments', label: 'Payments', type: 'int', w: 10 }, { key: 'amount', label: 'Amount (KES)', type: 'money', w: 16 }, { key: 'running', label: 'Running total (KES)', type: 'money', w: 18 }],
+      rows: [...periods.keys()].sort().map((k) => { const rs = periods.get(k); const a = sum(rs, 'amount'); running = round2(running + a); return { period: perDay ? dayLabel(k) : monthLabel(k), payments: rs.length, amount: a, running }; }),
+      subtotal: { label: 'Total', values: { payments: rows.length, amount: total } },
+    });
+
+    sections.push({
+      heading: 'Payments received',
+      columns: [
+        { key: 'paid_at', label: 'Date', type: 'date', w: 10 }, { key: 'reference', label: 'Reference', w: 15 }, { key: 'admission_no', label: 'Adm. No', w: 12 },
+        { key: 'name', label: 'Student', w: 21 }, { key: 'term', label: 'Term', w: 15 }, { key: 'fee_type', label: 'Fee type', w: 12 },
+        { key: 'amount', label: 'Amount (KES)', type: 'money', w: 12 }, { key: 'received_by', label: 'Received by', w: 11 },
+      ],
+      rows,
+      subtotal: { label: `Total · ${rows.length} payment${rows.length === 1 ? '' : 's'}`, values: { amount: total } },
+    });
+  }
+
+  const students = new Set(rows.map((r) => r.student_id)).size;
+  const periodText = rows.length ? `${new Date(rows[0].paid_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} – ${new Date(rows[rows.length - 1].paid_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : 'no payments';
+  return {
+    title: 'Fee Collections Report',
+    subtitle: [from || to ? `Payments ${q.date_from ? 'from ' + q.date_from : ''}${q.date_to ? ' to ' + q.date_to : ''}`.trim() : null, scopeText(filterLines)].filter(Boolean).join('  ·  '),
+    filters: filterLines,
+    kpis: [
+      { label: 'Total collected', value: total, type: 'money' },
+      { label: 'Payments', value: rows.length, type: 'int' },
+      { label: 'Students who paid', value: students, type: 'int' },
+      { label: 'Average payment', value: rows.length ? round2(total / rows.length) : 0, type: 'money' },
+      { label: 'Largest payment', value: rows.length ? Math.max(...rows.map((r) => r.amount)) : 0, type: 'money' },
+      { label: 'Period', value: periodText, type: 'text' },
+    ],
+    sections: budgetSections(sections, full),
+    notes: ['A payment not yet allocated to a fee type is shown as "Unallocated".'],
+    signoff: true,
+    flat: { columns: [
+      { key: 'paid_at', label: 'Date', type: 'date' }, { key: 'reference', label: 'Reference' }, { key: 'admission_no', label: 'Adm. No' }, { key: 'name', label: 'Student' },
+      { key: 'course', label: 'Course' }, { key: 'level', label: 'Level' }, { key: 'term', label: 'Term' }, { key: 'fee_type', label: 'Fee type' },
+      { key: 'amount', label: 'Amount (KES)', type: 'money' }, { key: 'received_by', label: 'Received by' }, { key: 'notes', label: 'Notes' },
+    ], rows },
+  };
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3. FEE COLLECTION SUMMARY
+// ═════════════════════════════════════════════════════════════════════════════
+const feeSummary = async (q, { full }) => {
+  const filterLines = await describeFilters(q, FEE_SCOPE_FILTERS);
+  const rows = await loadStudentFeeRows(q);
+  const dim = ['department', 'course', 'level', 'term', 'type'].includes(q.group_by) ? q.group_by : (q.course_id ? 'level' : q.department_id ? 'course' : 'department');
+  const dimLabel = { department: 'Department', course: 'Course', level: 'Level', term: 'Term', type: 'Student type' }[dim];
+
+  const groups = new Map();
+  const add = (key, o) => {
+    if (!groups.has(key)) groups.set(key, { key, students: 0, billed: 0, paid: 0, balance: 0, cleared: 0, partial: 0, unpaid: 0 });
+    const g = groups.get(key);
+    g.students += o.students; g.billed += o.billed; g.paid += o.paid; g.balance += o.balance;
+    g.cleared += o.cleared; g.partial += o.partial; g.unpaid += o.unpaid;
+  };
+  if (dim === 'term') {
+    // by term: each student-term bill counts once; outstanding is billed minus paid for that term
+    for (const r of rows) for (const b of r.termRows) {
+      const due = b.total_fees - b.amount_paid;
+      add(termName(b.term), { students: 1, billed: b.total_fees, paid: b.amount_paid, balance: due, cleared: due <= 0.009 ? 1 : 0, partial: due > 0.009 && b.amount_paid > 0.009 ? 1 : 0, unpaid: due > 0.009 && b.amount_paid <= 0.009 ? 1 : 0 });
+    }
+  } else {
+    for (const r of rows) add(groupLabelFor(dim === 'course' ? 'course' : dim, r), { students: 1, billed: r.billed, paid: r.paid, balance: r.balance, cleared: r.status === 'Cleared' ? 1 : 0, partial: r.status === 'Partial' ? 1 : 0, unpaid: ['Unpaid', 'Overdue'].includes(r.status) ? 1 : 0 });
+  }
+  const list = [...groups.values()].sort((a, b) => (dim === 'level' ? byLevel(a.key, b.key) : dim === 'term' ? 0 : a.key.localeCompare(b.key)))
+    .map((g) => ({ ...g, billed: round2(g.billed), paid: round2(g.paid), balance: round2(g.balance), rate: pct(g.paid, g.billed) }));
+
+  const totalRow = list.reduce((t, g) => ({ students: t.students + g.students, billed: t.billed + g.billed, paid: t.paid + g.paid, balance: t.balance + g.balance, cleared: t.cleared + g.cleared, partial: t.partial + g.partial, unpaid: t.unpaid + g.unpaid }), { students: 0, billed: 0, paid: 0, balance: 0, cleared: 0, partial: 0, unpaid: 0 });
+  const sections = list.length ? [{
+    heading: `Collection by ${dimLabel.toLowerCase()}`,
+    columns: [
+      { key: 'key', label: dimLabel, w: 28 }, { key: 'students', label: dim === 'term' ? 'Bills' : 'Students', type: 'int', w: 8 },
+      { key: 'billed', label: 'Billed (KES)', type: 'money', w: 13 }, { key: 'paid', label: 'Collected (KES)', type: 'money', w: 14 },
+      { key: 'balance', label: 'Outstanding (KES)', type: 'money', w: 15 }, { key: 'rate', label: 'Collected %', type: 'percent', w: 9 },
+      { key: 'cleared', label: 'Cleared', type: 'int', w: 7 }, { key: 'partial', label: 'Partial', type: 'int', w: 7 }, { key: 'unpaid', label: 'Unpaid', type: 'int', w: 7 },
+    ],
+    rows: list,
+    subtotal: { label: 'Total', values: { students: totalRow.students, billed: round2(totalRow.billed), paid: round2(totalRow.paid), balance: round2(totalRow.balance), rate: pct(totalRow.paid, totalRow.billed), cleared: totalRow.cleared, partial: totalRow.partial, unpaid: totalRow.unpaid } },
+  }] : [];
+
+  return {
+    title: 'Fee Collection Summary',
+    subtitle: `${scopeText(filterLines)}  ·  by ${dimLabel.toLowerCase()}`,
+    filters: filterLines,
+    kpis: [
+      { label: 'Students', value: rows.length, type: 'int' },
+      { label: 'Total billed', value: round2(totalRow.billed), type: 'money' },
+      { label: 'Collected', value: round2(totalRow.paid), type: 'money' },
+      { label: 'Outstanding', value: round2(totalRow.balance), type: 'money' },
+      { label: 'Collection rate', value: pct(totalRow.paid, totalRow.billed), type: 'percent' },
+      { label: dim === 'term' ? 'Bills cleared' : 'Fully cleared', value: totalRow.cleared, type: 'int' },
+    ],
+    sections: budgetSections(sections, full),
+    notes: [dim === 'term'
+      ? 'By term, outstanding is billed minus paid for that term alone; a student appears once for every term they were billed for.'
+      : 'Outstanding is billed minus paid across the terms in scope, with carried-forward debt counted once.'],
+    signoff: true,
+    flat: { columns: [{ key: 'key', label: dimLabel }, { key: 'students', label: 'Students', type: 'int' }, { key: 'billed', label: 'Billed (KES)', type: 'money' }, { key: 'paid', label: 'Collected (KES)', type: 'money' }, { key: 'balance', label: 'Outstanding (KES)', type: 'money' }, { key: 'rate', label: 'Collected %', type: 'percent' }], rows: list },
+  };
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 4. STUDENT REGISTER
+// ═════════════════════════════════════════════════════════════════════════════
+const studentRegister = async (q, { full }) => {
+  const scope = ['department_id', 'course_id', 'level', 'intake', 'year', 'status', 'student_type_id', 'term_id', 'gender', 'helb', 'search'];
+  const filterLines = await describeFilters(q, scope);
+  const students = await prisma.student.findMany({
+    where: buildStudentWhere(q),
+    select: {
+      id: true, admission_no: true, level: true, intake: true, year: true, status: true,
+      student_type: { select: { name: true } },
+      application: { select: { surname: true, other_names: true, gender: true, phone: true } },
+      course: { select: { name: true } }, department: { select: { name: true } },
+    },
+    orderBy: { admission_no: 'asc' },
+  });
+  const rows = students.map((s) => ({
+    admission_no: s.admission_no, name: fullName(s.application), gender: s.application?.gender || '', phone: s.application?.phone || '',
+    course: s.course?.name || 'No course', department: s.department?.name || 'No department', level: s.level,
+    intake: `${cap(s.intake)} ${s.year}`, student_status: cap(s.status), type: s.student_type?.name || '',
+  }));
+  const hasTypes = rows.some((r) => r.type);
+  const sorted = q.sort === 'name' ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows;
+  const mode = pickGrouping(q, ['department', 'course', 'level', 'type', 'none'], () => (q.course_id ? 'level' : q.department_id ? 'course' : 'course'));
+
+  const columns = (m) => [
+    { key: 'n', label: '#', type: 'int', w: 3 }, { key: 'admission_no', label: 'Adm. No', w: 13 }, { key: 'name', label: 'Student', w: 25 },
+    { key: 'gender', label: 'Gender', w: 7 },
+    ...(m !== 'level' ? [{ key: 'level', label: 'Level', w: 8 }] : []),
+    { key: 'intake', label: 'Intake', w: 12 }, { key: 'phone', label: 'Phone', w: 12 },
+    ...(hasTypes ? [{ key: 'type', label: 'Type', w: 9 }] : []),
+    { key: 'student_status', label: 'Status', w: 9 },
+  ];
+  const sections = groupRows(sorted.map((r) => ({ ...r })), mode === 'course' ? 'course' : mode).map((g) => ({
+    heading: mode === 'none' ? 'Students' : g.key,
+    columns: columns(mode),
+    rows: g.rows.map((r, i) => ({ ...r, n: i + 1 })),
+    subtotal: { label: `${g.rows.length} student${g.rows.length === 1 ? '' : 's'}`, values: {} },
+  }));
+
+  const count = (f, v) => rows.filter((r) => r[f] === v).length;
+  return {
+    title: 'Student Register',
+    subtitle: scopeText(filterLines),
+    filters: filterLines,
+    kpis: [
+      { label: 'Students', value: rows.length, type: 'int' },
+      { label: 'Male', value: rows.filter((r) => /^m/i.test(r.gender)).length, type: 'int' },
+      { label: 'Female', value: rows.filter((r) => /^f/i.test(r.gender)).length, type: 'int' },
+      { label: 'Active', value: count('student_status', 'Active'), type: 'int' },
+      { label: 'Completed', value: count('student_status', 'Completed'), type: 'int' },
+      { label: 'Graduated', value: count('student_status', 'Graduated'), type: 'int' },
+    ],
+    sections: budgetSections(sections, full),
+    notes: [],
+    signoff: false,
+    flat: { columns: [{ key: 'admission_no', label: 'Adm. No' }, { key: 'name', label: 'Student' }, { key: 'gender', label: 'Gender' }, { key: 'department', label: 'Department' }, { key: 'course', label: 'Course' }, { key: 'level', label: 'Level' }, { key: 'intake', label: 'Intake' }, { key: 'phone', label: 'Phone' }, { key: 'type', label: 'Student type' }, { key: 'student_status', label: 'Status' }], rows: sorted },
+  };
+};
+
+// ── the list of reports offered, and which filters each one understands ──
+const STUDENT_FILTERS = ['department_id', 'course_id', 'level', 'intake', 'year', 'status', 'student_type_id', 'gender', 'helb', 'search'];
+const CATALOG = [
+  {
+    id: 'fee-balances', group: 'Finance', title: 'Fee balances & arrears', roles: ['ADMIN', 'FINANCE'],
+    blurb: 'Who owes what. Grouped by department, course or level, with subtotals, and a summary by fee status.',
+    filters: [...STUDENT_FILTERS, 'term_id', 'fee_status', 'outstanding_only', 'min_balance'],
+    options: { group_by: [['auto', 'Automatic (follows the filters)'], ['department', 'Department'], ['course', 'Course'], ['level', 'Level'], ['type', 'Student type'], ['none', 'One list']], sort: [['admission', 'Admission number'], ['name', 'Name'], ['balance', 'Largest balance first']] },
+    build: feeBalances,
+  },
+  {
+    id: 'fee-collections', group: 'Finance', title: 'Fee collections', roles: ['ADMIN', 'FINANCE'],
+    blurb: 'Money received in a period: by fee type, by day or month, and every payment listed.',
+    filters: [...STUDENT_FILTERS, 'term_id', 'fee_type_id', 'date_from', 'date_to'],
+    options: {},
+    build: feeCollections,
+  },
+  {
+    id: 'fee-summary', group: 'Finance', title: 'Fee collection summary', roles: ['ADMIN', 'FINANCE'],
+    blurb: 'Billed, collected and outstanding side by side, with the collection rate for each department, course, level or term.',
+    filters: [...STUDENT_FILTERS, 'term_id', 'fee_status', 'outstanding_only'],
+    options: { group_by: [['auto', 'Automatic (follows the filters)'], ['department', 'Department'], ['course', 'Course'], ['level', 'Level'], ['term', 'Term'], ['type', 'Student type']] },
+    build: feeSummary,
+  },
+  {
+    id: 'student-register', group: 'Students', title: 'Student register', roles: ['ADMIN', 'FINANCE', 'REGISTRAR'],
+    blurb: 'A clean class list by course and level, with counts by gender and status.',
+    filters: [...STUDENT_FILTERS, 'term_id'],
+    options: { group_by: [['auto', 'Automatic (follows the filters)'], ['department', 'Department'], ['course', 'Course'], ['level', 'Level'], ['type', 'Student type'], ['none', 'One list']], sort: [['admission', 'Admission number'], ['name', 'Name']] },
+    build: studentRegister,
+  },
+];
+
+const catalogFor = (role) => CATALOG.filter((r) => r.roles.includes(role)).map(({ build, roles, ...rest }) => rest);
+
+const buildReport = async (id, query, { role, full = false } = {}) => {
+  const def = CATALOG.find((r) => r.id === id);
+  if (!def) throw fail('Unknown report', 404);
+  if (!def.roles.includes(role)) throw fail('You do not have access to this report', 403);
+  // only the filters this report understands are applied
+  const q = {};
+  for (const k of [...def.filters, 'group_by', 'sort']) if (query[k] !== undefined && query[k] !== '') q[k] = query[k];
+  const doc = await def.build(q, { full });
+  // internal working data is not part of the report that is sent out
+  const clean = (rows) => rows.map(({ termRows, ...r }) => r);
+  const out = { id: def.id, group: def.group, ...doc, sections: doc.sections.map((s) => ({ ...s, rows: clean(s.rows) })) };
+  if (full && doc.flat) out.flat = { ...doc.flat, rows: clean(doc.flat.rows) }; else delete out.flat;
+  return out;
+};
+
+module.exports = { buildReport, catalogFor, CATALOG, STUDENT_STATUSES, INTAKES, BALANCE_STATUSES };
