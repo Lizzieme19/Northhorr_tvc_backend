@@ -1,6 +1,8 @@
 const prisma = require('../config/db');
 const { buildStudentWhere, resolveFeeFilterIds, STUDENT_STATUSES, INTAKES, BALANCE_STATUSES } = require('../utils/studentFilters');
 const { summarizeBalances, round2 } = require('../utils/feeTotals');
+const { planStudent } = require('./billingService');
+const { statementFor } = require('./admissionLinkService');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REPORTS
@@ -480,6 +482,167 @@ const studentRegister = async (q, { full }) => {
   };
 };
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5. ONE STUDENT'S FEE STATEMENT
+// ═════════════════════════════════════════════════════════════════════════════
+const statusLabel = (st) => ({ PAID: 'Cleared', PARTIAL: 'Partial', PENDING: 'Unpaid', OVERDUE: 'Overdue' }[st] || cap(st));
+const dayText = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+const safeFile = (v) => String(v || '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+
+const studentStatement = async (q, { audience }) => {
+  if (!q.student_id) throw fail('Choose a student');
+  const forStudent = audience === 'student';
+  const st = await prisma.student.findUnique({
+    where: { id: q.student_id },
+    include: {
+      application: true,
+      course: { select: { name: true } }, department: { select: { name: true } }, student_type: { select: { name: true } },
+      current_term: { select: { name: true, academic_year: true } }, user: { select: { email: true } },
+    },
+  });
+  if (!st) throw fail('Student not found', 404);
+
+  const [rowsRaw, records, planRes, group] = await Promise.all([
+    prisma.studentBalance.findMany({ where: { student_id: st.id }, include: { term: true } }),
+    prisma.feeRecord.findMany({
+      where: { student_id: st.id },
+      include: { feeType: { select: { name: true } }, term: { select: { name: true, academic_year: true } }, receiver: { select: { email: true } } },
+      orderBy: { paid_at: 'asc' },
+    }),
+    planStudent(st.id).catch(() => null),
+    statementFor(st.id).catch(() => null),
+  ]);
+  const rows = [...rowsRaw].sort((a, b) => new Date(a.term.start_date) - new Date(b.term.start_date));
+  const money = summarizeBalances(rows);
+  const name = fullName(st.application);
+  const planByRow = new Map((planRes?.plan || []).map((p) => [p.row.id, p]));
+  const allocated = records.filter((r) => r.term_id);
+  const loose = records.filter((r) => !r.term_id);
+
+  // 1. fees by term
+  const termRows = rows.map((r) => ({ term: termName(r.term), level: r.level || st.level, billed: round2(r.total_fees), bf: round2(r.previous_balance_carryover || 0), paid: round2(r.amount_paid), balance: round2(r.balance), status: statusLabel(r.status) }));
+
+  // 2. what each term's bill is made of; anything the engine's breakdown does not explain is shown as its own line
+  const charges = [];
+  for (const r of rows) {
+    const lines = (planByRow.get(r.id)?.breakdown || []).filter((b) => Math.abs(b.amount) > 0.009);
+    const explained = round2(lines.reduce((t, b) => t + b.amount, 0));
+    const kindLabel = { term: 'Term fee', 'every term': 'Every term', once: 'Once', adjustment: 'Adjustment' };
+    let first = true;
+    const push = (item, billing, amount) => { charges.push({ term: first ? termName(r.term) : '', item, billing, amount: round2(amount) }); first = false; };
+    if (lines.length) {
+      lines.forEach((b) => push(b.name, kindLabel[b.kind] || '', b.amount));
+      const diff = round2(r.total_fees - Math.max(0, explained));
+      if (Math.abs(diff) > 0.009) push(r.fee_override != null ? 'Fee set manually for this term' : 'Other adjustment', 'Adjustment', diff);
+    } else push('Fees billed', '', r.total_fees);
+    charges.push({ term: '', item: 'Term total', billing: '', amount: round2(r.total_fees), _bold: true });
+  }
+
+  // 3. payments
+  let runPaid = 0;
+  const payments = records.map((r) => {
+    runPaid = round2(runPaid + r.amount);
+    return { paid_at: r.paid_at, reference: r.reference_code || '', term: r.term ? termName(r.term) : 'Not allocated to a term', fee_type: r.feeType?.name || 'Unallocated', amount: round2(r.amount), running: runPaid, received_by: (r.receiver?.email || '').split('@')[0], notes: r.notes || '' };
+  });
+  const totalPayments = sum(payments, 'amount');
+
+  // 4. statement of account: bills and payments in date order, with the balance after each
+  const events = [];
+  rows.forEach((r, i) => {
+    const open = r.previous_balance_carryover || 0;
+    if (i === 0 && !r.carried_from_term_id && Math.abs(open) > 0.009) events.push({ date: r.term.start_date, order: 0, desc: 'Balance brought forward', debit: Math.max(open, 0), credit: Math.max(-open, 0) });
+    events.push({ date: r.term.start_date, order: 1, desc: `${termName(r.term)}: fees billed`, debit: r.total_fees, credit: 0 });
+  });
+  allocated.forEach((r) => events.push({ date: r.paid_at, order: 2, desc: `Payment${r.reference_code ? ' ' + r.reference_code : ''} · ${r.feeType?.name || 'Unallocated'}${r.term ? ` (${r.term.name})` : ''}`, debit: 0, credit: r.amount }));
+  events.sort((a, b) => new Date(a.date) - new Date(b.date) || a.order - b.order);
+  let bal = 0;
+  const ledger = events.map((e) => { bal = round2(bal + e.debit - e.credit); return { date: e.date, desc: e.desc, debit: e.debit ? round2(e.debit) : '', credit: e.credit ? round2(e.credit) : '', balance: bal }; });
+  const ledgerClosing = bal;
+
+  const sections = [];
+  if (rows.length) {
+    sections.push({
+      heading: 'Fees by term',
+      columns: [
+        { key: 'term', label: 'Term', w: 24 }, { key: 'level', label: 'Level', w: 8 }, { key: 'billed', label: 'Billed (KES)', type: 'money', w: 13 },
+        { key: 'bf', label: 'B/F (KES)', type: 'money', w: 12 }, { key: 'paid', label: 'Paid (KES)', type: 'money', w: 13 }, { key: 'balance', label: 'Balance (KES)', type: 'money', w: 13 }, { key: 'status', label: 'Status', w: 9 },
+      ],
+      rows: termRows,
+      subtotal: { label: 'Total', values: { billed: money.totalFees, paid: money.totalPaid, balance: money.outstanding } },
+    });
+    sections.push({
+      heading: 'What each term was billed for',
+      columns: [{ key: 'term', label: 'Term', w: 24 }, { key: 'item', label: 'Fee item', w: 28 }, { key: 'billing', label: 'Billed', w: 11 }, { key: 'amount', label: 'Amount (KES)', type: 'money', w: 14 }],
+      rows: charges,
+      subtotal: { label: 'Total billed', values: { amount: money.totalFees } },
+    });
+  }
+  if (payments.length) {
+    sections.push({
+      heading: 'Payments received',
+      columns: [
+        { key: 'paid_at', label: 'Date', type: 'date', w: 10 }, { key: 'reference', label: 'Reference', w: 16 }, { key: 'term', label: 'Term', w: 20 }, { key: 'fee_type', label: 'Fee type', w: 12 },
+        { key: 'amount', label: 'Amount (KES)', type: 'money', w: 13 }, { key: 'running', label: 'Total paid so far (KES)', type: 'money', w: 16 },
+        ...(forStudent ? [] : [{ key: 'received_by', label: 'Received by', w: 11 }, { key: 'notes', label: 'Notes', w: 18 }]),
+      ],
+      rows: payments,
+      subtotal: { label: `Total · ${payments.length} payment${payments.length === 1 ? '' : 's'}`, values: { amount: totalPayments } },
+    });
+  }
+  if (ledger.length) {
+    sections.push({
+      heading: 'Statement of account',
+      columns: [{ key: 'date', label: 'Date', type: 'date', w: 10 }, { key: 'desc', label: 'Description', w: 44 }, { key: 'debit', label: 'Billed (KES)', type: 'money', w: 13 }, { key: 'credit', label: 'Paid (KES)', type: 'money', w: 13 }, { key: 'balance', label: 'Balance (KES)', type: 'money', w: 14 }],
+      rows: ledger,
+      subtotal: { label: 'Closing balance', values: { debit: round2(ledger.reduce((t, e) => t + (Number(e.debit) || 0), 0)), credit: round2(ledger.reduce((t, e) => t + (Number(e.credit) || 0), 0)), balance: ledgerClosing } },
+    });
+  }
+  if (group && group.admissions.length > 1) {
+    sections.push({
+      heading: 'All admissions of this student',
+      columns: [{ key: 'admission_no', label: 'Admission', w: 16 }, { key: 'course', label: 'Course', w: 26 }, { key: 'level', label: 'Level', w: 8 }, { key: 'status', label: 'Status', w: 9 }, { key: 'billed', label: 'Billed (KES)', type: 'money', w: 13 }, { key: 'paid', label: 'Paid (KES)', type: 'money', w: 13 }, { key: 'outstanding', label: 'Outstanding (KES)', type: 'money', w: 15 }],
+      rows: group.admissions.map((a) => ({ admission_no: `${a.admission_no}${a.id === st.id ? '  (this statement)' : ''}`, course: a.course || '', level: a.level, status: cap(a.status), billed: a.billed, paid: a.paid, outstanding: a.outstanding })),
+      subtotal: { label: 'Combined', values: { billed: group.combined.billed, paid: group.combined.paid, outstanding: group.combined.outstanding } },
+    });
+  }
+
+  const owing = money.outstanding;
+  const last = payments.length ? payments[payments.length - 1] : null;
+  const notes = [];
+  notes.push('Balance is what was billed minus what was paid, with any balance brought forward counted once.');
+  if (loose.length) notes.push(`${loose.length} payment${loose.length === 1 ? ' is' : 's are'} not allocated to a term (KES ${thousandsText(sum(loose, 'amount'))}) and ${loose.length === 1 ? 'is' : 'are'} not counted in the balance until allocated.`);
+  if (Math.abs(ledgerClosing - owing) > 0.5) notes.push(`The statement of account closes at KES ${thousandsText(ledgerClosing)} while the term balances total KES ${thousandsText(owing)}; the difference is a payment recorded against one term but counted in another.`);
+
+  return {
+    title: 'Student Fee Statement',
+    subtitle: `${name.toUpperCase()}  ·  ${st.admission_no}`,
+    subtitle_size: 13,
+    filters: [],
+    filter_text: `Statement of account up to ${dayText(new Date())}`,
+    details: [
+      ['Student', name], ['Admission no.', st.admission_no], ['Course', st.course?.name], ['Department', st.department?.name],
+      ['Level', st.level], ['Intake', `${cap(st.intake)} ${st.year}`], ['Status', cap(st.status)], ['Student type', st.student_type?.name],
+      ['Phone', st.application?.phone], ['Email', st.user?.email || st.application?.email], ['Current term', st.current_term ? termName(st.current_term) : ''], ['HELB', st.helb_applied ? 'Applied' : ''],
+    ].filter(([, v]) => v),
+    kpis: [
+      { label: 'Total billed', value: money.totalFees, type: 'money' },
+      { label: 'Total paid', value: money.totalPaid, type: 'money' },
+      { label: owing < -0.009 ? 'Credit (overpaid)' : 'Balance owing', value: Math.abs(owing), type: 'money' },
+      { label: 'Collected', value: pct(money.totalPaid, money.totalFees), type: 'percent' },
+      { label: 'Terms billed', value: rows.length, type: 'int' },
+      { label: 'Last payment', value: last ? `${dayText(last.paid_at)}: KES ${thousandsText(last.amount)}` : 'None yet', type: 'text' },
+    ],
+    sections,
+    notes,
+    signoff: true,
+    signoff_labels: ['Issued by (Finance Office)', 'Official stamp'],
+    file_base: `fee-statement_${safeFile(st.admission_no)}`,
+    flat: { columns: [{ key: 'date', label: 'Date', type: 'date' }, { key: 'desc', label: 'Description' }, { key: 'debit', label: 'Billed (KES)', type: 'money' }, { key: 'credit', label: 'Paid (KES)', type: 'money' }, { key: 'balance', label: 'Balance (KES)', type: 'money' }], rows: ledger },
+  };
+};
+const thousandsText = (n) => Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
 // ── the list of reports offered, and which filters each one understands ──
 const STUDENT_FILTERS = ['department_id', 'course_id', 'level', 'intake', 'year', 'status', 'student_type_id', 'gender', 'helb', 'search'];
 const CATALOG = [
@@ -505,6 +668,13 @@ const CATALOG = [
     build: feeSummary,
   },
   {
+    id: 'student-statement', group: 'Finance', title: 'Student fee statement', roles: ['ADMIN', 'FINANCE'],
+    blurb: 'One student: their details, fees by term, what each term was billed for, every payment, and a running statement of account.',
+    filters: ['student_id'],
+    options: {},
+    build: studentStatement,
+  },
+  {
     id: 'student-register', group: 'Students', title: 'Student register', roles: ['ADMIN', 'FINANCE', 'REGISTRAR'],
     blurb: 'A clean class list by course and level, with counts by gender and status.',
     filters: [...STUDENT_FILTERS, 'term_id'],
@@ -515,14 +685,14 @@ const CATALOG = [
 
 const catalogFor = (role) => CATALOG.filter((r) => r.roles.includes(role)).map(({ build, roles, ...rest }) => rest);
 
-const buildReport = async (id, query, { role, full = false } = {}) => {
+const buildReport = async (id, query, { role, full = false, audience } = {}) => {
   const def = CATALOG.find((r) => r.id === id);
   if (!def) throw fail('Unknown report', 404);
   if (!def.roles.includes(role)) throw fail('You do not have access to this report', 403);
   // only the filters this report understands are applied
   const q = {};
   for (const k of [...def.filters, 'group_by', 'sort']) if (query[k] !== undefined && query[k] !== '') q[k] = query[k];
-  const doc = await def.build(q, { full });
+  const doc = await def.build(q, { full, audience });
   // internal working data is not part of the report that is sent out
   const clean = (rows) => rows.map(({ termRows, ...r }) => r);
   const out = { id: def.id, group: def.group, ...doc, sections: doc.sections.map((s) => ({ ...s, rows: clean(s.rows) })) };

@@ -44,10 +44,10 @@ async function renderPdf(report, { generatedBy = '' } = {}) {
 
     // ── page 1: the letterhead, title, filters, headline numbers ──
     y = await docs.drawHeader(doc, report.title);
-    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(report.subtitle || '', L, y - 2, { width: W, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(report.subtitle_size || 10).fillColor('#111827').text(report.subtitle || '', L, y - 2, { width: W, align: 'center' });
     y = doc.y + 3;
     const filterText = report.filters.length ? report.filters.map(([k, v]) => `${k}: ${v}`).join('   |   ') : 'No filters: everything is included';
-    doc.font('Helvetica').fontSize(7.5).fillColor('#4B5563').text(`Filters:  ${filterText}`, L, y, { width: W, align: 'center' });
+    doc.font('Helvetica').fontSize(7.5).fillColor('#4B5563').text(report.filter_text || `Filters:  ${filterText}`, L, y, { width: W, align: 'center' });
     y = doc.y + 2;
     doc.fontSize(7).fillColor('#6B7280').text(`Generated ${stamp()}${generatedBy ? ` by ${generatedBy}` : ''}`, L, y, { width: W, align: 'center' });
     y = doc.y + 10;
@@ -64,6 +64,21 @@ async function renderPdf(report, { generatedBy = '' } = {}) {
       y += 34 + 12;
     }
 
+    // who or what the report is about: a tidy grid of label and value
+    if (report.details?.length) {
+      const perRow = 4; const cw = W / perRow;
+      const lines = Math.ceil(report.details.length / perRow);
+      const bh = lines * 24 + 10;
+      need(bh + 12);
+      doc.roundedRect(L, y, W, bh, 4).lineWidth(0.5).stroke('#E5E7EB');
+      report.details.forEach(([k, v], i) => {
+        const cx2 = L + (i % perRow) * cw + 8; const cy = y + 6 + Math.floor(i / perRow) * 24;
+        doc.font('Helvetica').fontSize(6.5).fillColor('#6B7280').text(String(k).toUpperCase(), cx2, cy, { width: cw - 12, lineBreak: false });
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#111827').text(String(v), cx2, cy + 9, { width: cw - 12, lineBreak: false, ellipsis: true });
+      });
+      y += bh + 12;
+    }
+
     if (!report.sections.length) {
       doc.font('Helvetica-Bold').fontSize(11).fillColor('#6B7280').text('No records match these filters.', L, y + 20, { width: W, align: 'center' });
       doc.font('Helvetica').fontSize(8.5).text('Try widening the filters (a different term, a wider date range, or all courses).', L, doc.y + 4, { width: W, align: 'center' });
@@ -75,15 +90,21 @@ async function renderPdf(report, { generatedBy = '' } = {}) {
       const total = sec.columns.reduce((s, c) => s + (c.w || 10), 0);
       const TW = W * Math.min(1, total / 95); // a table with few columns does not stretch across the page
       let cx = L;
-      const cols = sec.columns.map((c) => { const pw = (TW * (c.w || 10)) / total; const o = { ...c, x: cx, pw, align: /status/.test(c.key) ? 'center' : alignOf(c) }; cx += pw; return o; });
+      const cols = sec.columns.map((c, i, all) => {
+        const pw = (TW * (c.w || 10)) / total;
+        const align = /status/.test(c.key) ? 'center' : alignOf(c);
+        // text straight after a column of numbers is set in a little, so the two do not touch
+        const lead = align === 'left' && i > 0 && alignOf(all[i - 1]) === 'right' ? 8 : 0;
+        const o = { ...c, x: cx, pw, align, lead }; cx += pw; return o;
+      });
       const padX = 3; const padY = 2.6;
       const measure = (cells, bold) => {
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(FS);
-        return Math.max(...cells.map((t, i) => doc.heightOfString(String(t ?? ''), { width: cols[i].pw - padX * 2 })), FS) + padY * 2;
+        return Math.max(...cells.map((t, i) => doc.heightOfString(String(t ?? ''), { width: cols[i].pw - padX * 2 - cols[i].lead })), FS) + padY * 2;
       };
       const writeCells = (cells, ry, bold, color) => {
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(FS).fillColor(color || '#111827');
-        cells.forEach((t, i) => doc.text(String(t ?? ''), cols[i].x + padX, ry + padY, { width: cols[i].pw - padX * 2, align: cols[i].align }));
+        cells.forEach((t, i) => doc.text(String(t ?? ''), cols[i].x + padX + cols[i].lead, ry + padY, { width: cols[i].pw - padX * 2 - cols[i].lead, align: cols[i].align }));
       };
       const tableHead = () => {
         const labels = cols.map((c) => c.label);
@@ -101,10 +122,10 @@ async function renderPdf(report, { generatedBy = '' } = {}) {
 
       sec.rows.forEach((row, ri) => {
         const cells = cols.map((c) => fmtCell(c, row[c.key]));
-        const h = measure(cells, false);
+        const h = measure(cells, Boolean(row._bold));
         if (need(h)) tableHead();
-        if (ri % 2 === 1) doc.rect(L, y, TW, h).fill('#F7F8F7');
-        writeCells(cells, y, false);
+        if (row._bold) doc.rect(L, y, TW, h).fill('#EAF1EC'); else if (ri % 2 === 1) doc.rect(L, y, TW, h).fill('#F7F8F7');
+        writeCells(cells, y, Boolean(row._bold));
         doc.moveTo(L, y + h).lineTo(L + TW, y + h).strokeColor('#EEF0EE').lineWidth(0.4).stroke();
         y += h;
       });
@@ -138,7 +159,7 @@ async function renderPdf(report, { generatedBy = '' } = {}) {
       need(62);
       y += 14;
       const colW = (W - 40) / 2;
-      [['Prepared by', generatedBy], ['Checked and approved by', '']].forEach(([label, name], i) => {
+      (report.signoff_labels ? [[report.signoff_labels[0], ''], [report.signoff_labels[1], '']] : [['Prepared by', generatedBy], ['Checked and approved by', '']]).forEach(([label, name], i) => {
         const x = L + i * (colW + 40);
         doc.moveTo(x, y + 22).lineTo(x + colW, y + 22).strokeColor('#9CA3AF').lineWidth(0.5).stroke();
         doc.font('Helvetica-Bold').fontSize(8).fillColor('#111827').text(label, x, y + 26, { width: colW, lineBreak: false });
@@ -180,8 +201,10 @@ function renderXlsx(report, { generatedBy = '', style = {} } = {}) {
   push([]);
   push(['Generated', stamp()]);
   if (generatedBy) push(['Generated by', generatedBy]);
-  push(['Filters', report.filters.length ? report.filters.map(([k, v]) => `${k}: ${v}`).join('; ') : 'None (everything included)']);
+  push(['Filters', report.filter_text || (report.filters.length ? report.filters.map(([k, v]) => `${k}: ${v}`).join('; ') : 'None (everything included)')]);
   push([]);
+  for (const [k, v] of report.details || []) push([k, v]);
+  if (report.details?.length) push([]);
   for (const k of report.kpis || []) {
     const r = push([k.label, k.type === 'money' || k.type === 'int' || k.type === 'percent' ? Number(k.value) : String(k.value)]);
     if (k.type === 'money') cellFmt.push({ r, c: 1, z: MONEY_Z });

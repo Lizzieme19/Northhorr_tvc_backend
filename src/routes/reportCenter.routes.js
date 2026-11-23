@@ -23,6 +23,20 @@ router.get('/catalog', authenticate, who, c.catalog);
 
 /**
  * @swagger
+ * /api/reports/my-statement/pdf:
+ *   get:
+ *     summary: The signed-in student's own fee statement as a PDF on the college letterhead
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: A PDF
+ */
+router.get('/my-statement/pdf', authenticate, requireRoles('STUDENT'), c.myStatementPdf);
+
+/**
+ * @swagger
  * /api/reports/{id}/preview:
  *   get:
  *     summary: Build a report and return it for viewing on screen, before downloading
