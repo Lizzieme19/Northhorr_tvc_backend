@@ -223,7 +223,10 @@ const feeBalances = async (q, { full }) => {
 
   const billed = sum(rows, 'billed'); const paid = sum(rows, 'paid');
   const owing = rows.filter((r) => r.balance > 0.009);
+  // net of anyone who has paid more than was billed, the same figure the collection summary and dashboard use
+  const credits = round2(Math.abs(sum(rows.filter((r) => r.balance < -0.009), 'balance')));
   const notes = [];
+  if (credits > 0) notes.push('Outstanding is net of students who have paid more than was billed; their credit is shown separately.');
   if (!q.term_id) notes.push('Outstanding is what was billed minus what was paid across every term the student was billed for. Debt carried from an earlier term is counted once.');
   else notes.push('Balances are for the chosen term and include any balance brought forward (B/F) from earlier terms.');
 
@@ -235,9 +238,10 @@ const feeBalances = async (q, { full }) => {
       { label: 'Students', value: rows.length, type: 'int' },
       { label: 'Total billed', value: billed, type: 'money' },
       { label: 'Total paid', value: paid, type: 'money' },
-      { label: q.term_id ? 'Balance due (incl. B/F)' : 'Outstanding', value: sum(owing, 'balance'), type: 'money' },
+      { label: q.term_id ? 'Balance due (incl. B/F)' : 'Outstanding', value: sum(rows, 'balance'), type: 'money' },
       { label: 'Collection rate', value: pct(paid, billed), type: 'percent' },
       { label: 'Students owing', value: owing.length, type: 'int' },
+      ...(credits > 0 ? [{ label: 'Credits (overpaid)', value: credits, type: 'money' }] : []),
     ],
     sections: budgetSections(sections, full),
     notes,
