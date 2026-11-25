@@ -528,7 +528,7 @@ const studentStatement = async (q, { audience }) => {
   for (const r of rows) {
     const lines = (planByRow.get(r.id)?.breakdown || []).filter((b) => Math.abs(b.amount) > 0.009);
     const explained = round2(lines.reduce((t, b) => t + b.amount, 0));
-    const kindLabel = { term: 'Term fee', 'every term': 'Every term', once: 'Once', adjustment: 'Adjustment' };
+    const kindLabel = { term: 'Term fee', 'every term': 'Every term', once: 'Once', 'set for this student': 'Set for student', adjustment: 'Adjustment' };
     let first = true;
     const push = (item, billing, amount) => { charges.push({ term: first ? termName(r.term) : '', item, billing, amount: round2(amount) }); first = false; };
     if (lines.length) {

@@ -57,8 +57,8 @@ const getFeeTypeById = async (req, res) => {
 // KUCCPS / DIRECT limits a fee to that kind of student; empty means everyone
 const cleanApplicantType = (v) => (v === 'KUCCPS' || v === 'DIRECT' ? v : null);
 
-// NOT_BILLED | ONCE | EVERY_TERM. The older term_based / added_to_term_fee columns are kept in step with it.
-const BILLING = ['NOT_BILLED', 'ONCE', 'EVERY_TERM'];
+// NOT_BILLED | ONCE | EVERY_TERM | PER_STUDENT (an amount Finance sets for each student). The older term_based / added_to_term_fee columns are kept in step with it.
+const BILLING = ['NOT_BILLED', 'ONCE', 'EVERY_TERM', 'PER_STUDENT'];
 const billingFields = (billing) => (BILLING.includes(billing)
   ? { billing, term_based: billing === 'EVERY_TERM', added_to_term_fee: billing === 'EVERY_TERM' }
   : {});
