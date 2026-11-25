@@ -735,6 +735,9 @@ const requisitionsReport = async (q, { full }) => {
   const where = {};
   if (q.department_id) where.department_id = q.department_id;
   if (q.req_status && REQ_STATUSES.includes(q.req_status)) where.status = q.req_status;
+  // services only, or goods only (consumables and assets)
+  if (q.req_kind === 'SERVICE') where.items = { some: { item_type: 'SERVICE' } };
+  else if (q.req_kind === 'GOODS') where.items = { some: { NOT: { item_type: 'SERVICE' } } };
   const from = parseDay(q.date_from); const to = parseDay(q.date_to, true);
   if (from || to) where.created_at = { ...(from && { gte: from }), ...(to && { lte: to }) };
   if (q.search && String(q.search).trim()) {
@@ -758,6 +761,7 @@ const requisitionsReport = async (q, { full }) => {
   const dept = q.department_id ? await prisma.department.findUnique({ where: { id: q.department_id }, select: { name: true } }) : null;
   if (dept) filterLines.push(['Department', dept.name]);
   if (q.req_status) filterLines.push(['Status', reqStatusLabel(q.req_status)]);
+  if (q.req_kind) filterLines.push(['Buying', q.req_kind === 'SERVICE' ? 'Services' : 'Goods']);
   if (q.date_from) filterLines.push(['Raised from', q.date_from]);
   if (q.date_to) filterLines.push(['Raised to', q.date_to]);
   if (q.search) filterLines.push(['Search', q.search]);
@@ -779,13 +783,14 @@ const requisitionsReport = async (q, { full }) => {
   });
   if (q.detail === 'items' && rows.length) {
     const itemRows = [];
-    rows.forEach((r) => r._items.forEach((i, ix) => itemRows.push({ requisition_no: ix === 0 ? r.requisition_no : '', item: i.item_name, kind: i.item_type ? cap(i.item_type) : '', qty: i.quantity, unit: i.unit_of_measure || '', unit_price: round2(i.unit_price || 0), total: round2(i.total_price ?? ((i.unit_price || 0) * i.quantity)) })));
+    rows.forEach((r) => r._items.forEach((i, ix) => itemRows.push({ requisition_no: ix === 0 ? r.requisition_no : '', item: i.service_category ? `${i.item_name} (${i.service_category})` : i.item_name, kind: i.item_type ? cap(i.item_type) : '', qty: i.quantity, unit: i.unit_of_measure || '', unit_price: round2(i.unit_price || 0), total: round2(i.total_price ?? ((i.unit_price || 0) * i.quantity)) })));
     sections.push({
       heading: 'Items requested',
       columns: [{ key: 'requisition_no', label: 'Requisition', w: 16 }, { key: 'item', label: 'Item', w: 30 }, { key: 'kind', label: 'Type', w: 10 }, { key: 'qty', label: 'Qty', type: 'int', w: 6 }, { key: 'unit', label: 'Unit', w: 8 }, { key: 'unit_price', label: 'Unit price (KES)', type: 'money', w: 14 }, { key: 'total', label: 'Total (KES)', type: 'money', w: 14 }],
       rows: itemRows, subtotal: { label: 'Total', values: { total: sum(itemRows, 'total') } },
     });
   }
+  const serviceValue = round2(rows.reduce((t, r) => t + r._items.filter((i) => i.item_type === 'SERVICE').reduce((n, i) => n + (i.total_price ?? ((i.unit_price || 0) * i.quantity)), 0), 0));
   const val = (st) => sum(rows.filter((r) => r.raw_status === st), 'amount');
   const cnt = (st) => rows.filter((r) => r.raw_status === st).length;
   return {
@@ -796,6 +801,7 @@ const requisitionsReport = async (q, { full }) => {
       { label: 'Requisitions', value: rows.length, type: 'int' }, { label: 'Total value', value: sum(rows, 'amount'), type: 'money' },
       { label: 'Awaiting approval', value: cnt('PENDING_APPROVAL'), type: 'int' }, { label: 'Approved value', value: round2(val('APPROVED') + val('ORDERED') + val('COMPLETED')), type: 'money' },
       { label: 'Rejected', value: cnt('REJECTED'), type: 'int' }, { label: 'Ordered / completed', value: cnt('ORDERED') + cnt('COMPLETED'), type: 'int' },
+      ...(serviceValue > 0 ? [{ label: 'Of which services', value: serviceValue, type: 'money' }] : []),
     ],
     sections: budgetSections(sections, full),
     notes: ['A requisition with no amount entered is valued from the prices of its items.'],
@@ -853,7 +859,7 @@ const CATALOG = [
   {
     id: 'requisitions', group: 'Procurement', title: 'Purchase requisitions', roles: ['ADMIN', 'PROCUREMENT', 'DEPT_HEAD'],
     blurb: 'What was asked for, by whom, how much it is worth, and where each requisition is in the approval and ordering process.',
-    filters: ['department_id', 'req_status', 'date_from', 'date_to', 'search'],
+    filters: ['department_id', 'req_status', 'req_kind', 'date_from', 'date_to', 'search'],
     date_label: 'Raised',
     options: { group_by: [['department', 'Department or unit'], ['status', 'Status'], ['none', 'One list']], detail: [['summary', 'Requisitions only'], ['items', 'With every item requested']] },
     build: requisitionsReport,

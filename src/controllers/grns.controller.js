@@ -2,11 +2,11 @@ const prisma = require('../config/db');
 const { generateGRN } = require('../services/documentService');
 const { readLineKind, carryKind, knownUnits, normalizeUnit, nextStockCode } = require('../services/procurementItemService');
 
-// Generate GRN number
-const generateGRNNo = () => {
+// Generate GRN number. When everything on the order is a service, the note is a Service Completion Note (SCN).
+const generateGRNNo = (prefix = 'GRN') => {
   const year = new Date().getFullYear();
   const rand = Math.floor(1000 + Math.random() * 9000);
-  return `GRN/${year}/${rand}`;
+  return `${prefix}/${year}/${rand}`;
 };
 
 // GET /api/grns - List GRNs
@@ -120,7 +120,7 @@ const createGRN = async (req, res) => {
 
     const grn = await prisma.gRN.create({
       data: {
-        grn_no: generateGRNNo(),
+        grn_no: generateGRNNo(lineKinds.length && lineKinds.every((k) => k.item_type === 'SERVICE') ? 'SCN' : 'GRN'),
         lpo_id,
         received_by: req.user.id,
         status: 'PENDING',
@@ -180,7 +180,7 @@ const updateGRNItem = async (req, res) => {
 
     const b = req.body || {};
     const data = {};
-    if (b.item_type !== undefined || b.asset_class !== undefined || b.unit_of_measure !== undefined || b.inventory_item_id !== undefined) {
+    if (b.item_type !== undefined || b.asset_class !== undefined || b.unit_of_measure !== undefined || b.inventory_item_id !== undefined || b.service_category !== undefined) {
       Object.assign(data, readLineKind({ ...carryKind(line), ...b }, await knownUnits()));
     }
     const whole = (v, label) => {
@@ -203,7 +203,7 @@ const updateGRNItem = async (req, res) => {
   }
 };
 
-// PATCH /api/grns/:id/verify - Verify GRN
+// PATCH /api/grns/:id/verify - Verify GRN (for services: accept the work as completed)
 // Consumables go into Inventory straight away (new items are created, in their unit of measure). Assets are
 // not tagged automatically: they wait in the "ready to tag" list so a person can confirm the quantity and add
 // serial numbers and locations, because tag numbers are permanent.
@@ -226,13 +226,15 @@ const verifyGRN = async (req, res) => {
       for (const line of existing.items) {
         if (line.quantity_accepted <= 0) { plan.push({ line, kind: 'NONE' }); continue; }
         if (line.item_type === 'ASSET') { plan.push({ line, kind: 'ASSET' }); continue; }
+        // work done: nothing goes into stock or the asset register, it is simply accepted as completed
+        if (line.item_type === 'SERVICE') { plan.push({ line, kind: 'SERVICE' }); continue; }
         const stock = await matchStockItem(line);
         if (line.item_type === 'CONSUMABLE' || stock) plan.push({ line, kind: 'STOCK', stock });
         else unclear.push(line.item_name);
       }
       if (unclear.length) {
         return res.status(400).json({
-          error: `Say what ${unclear.length === 1 ? 'this item is' : 'these items are'} before verifying (a consumable for Inventory, or an asset to be tagged): ${unclear.join(', ')}`,
+          error: `Say what ${unclear.length === 1 ? 'this item is' : 'these items are'} before verifying (a consumable for Inventory, an asset to be tagged, or a service): ${unclear.join(', ')}`,
           unclassified: unclear,
         });
       }
@@ -244,10 +246,11 @@ const verifyGRN = async (req, res) => {
       include: { lpo: { include: { supplier: { select: { name: true } } } }, items: true },
     });
 
-    const summary = { stock_lines: 0, new_stock_items: 0, assets_to_tag: 0 };
+    const summary = { stock_lines: 0, new_stock_items: 0, assets_to_tag: 0, services_accepted: 0 };
     if (status === 'VERIFIED') {
       for (const { line, kind, stock } of plan) {
         if (kind === 'ASSET') { summary.assets_to_tag += line.quantity_accepted; continue; }
+        if (kind === 'SERVICE') { summary.services_accepted += 1; continue; }
         if (kind !== 'STOCK') continue;
         let item = stock;
         if (!item) {

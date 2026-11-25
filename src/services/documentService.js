@@ -786,6 +786,13 @@ async function generateStudentPersonalInfo(student) {
 // PROCUREMENT DOCUMENTS
 // ─────────────────────────────────────────────────────────
 
+// Goods only, services only, or both: the wording of an order and of the note that receives it follows
+const orderKind = (items = []) => {
+  const types = items.map((i) => i.item_type);
+  if (types.length && types.every((t) => t === 'SERVICE')) return 'SERVICE';
+  return types.some((t) => t === 'SERVICE') ? 'MIXED' : 'GOODS';
+};
+
 async function generateLPO(lpo) {
   return buildPDF(async (doc) => {
     const template = await getTemplate('LPO');
@@ -796,7 +803,16 @@ async function generateLPO(lpo) {
     const textBlocks = template?.text_blocks || {};
     await applyTemplate(doc, textBlocks);
     const deliveryDateStr = fmtDate(lpo.delivery_date);
-    const defaultTerms = [
+    const kind = orderKind(lpo.items);
+    const serviceTerms = [
+      '1. The services must be rendered in accordance with the scope of work stated above.',
+      `2. The work must be completed by ${deliveryDateStr}.`,
+      '3. This order must accompany all invoices.',
+      '4. North Horr TVC reserves the right to reject work that does not meet the stated scope without obligation.',
+      '5. Payment shall be made within 30 days of a satisfactory service completion note and a verified invoice.',
+      '6. The service provider is responsible for the safety of their staff and for obeying the law while on college premises.',
+    ];
+    const defaultTerms = kind === 'SERVICE' ? serviceTerms : [
       '1. Goods/services must conform strictly to the specifications stated above.',
       `2. Delivery must be made to the stated department by ${deliveryDateStr}.`,
       '3. This LPO must accompany all deliveries and invoices.',
@@ -816,12 +832,12 @@ async function generateLPO(lpo) {
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    let y = await drawHeader(doc, 'Local Purchase Order', customLogos);
+    let y = await drawHeader(doc, kind === 'SERVICE' ? 'Local Service Order' : kind === 'MIXED' ? 'Local Purchase / Service Order' : 'Local Purchase Order', customLogos);
 
     // Banner
     doc.rect(pageLeft, y, contentWidth, 28).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
-      .text(`LPO NO: ${lpo.lpo_no}`, pageLeft + 12, y + 7, { continued: true, width: contentWidth / 2 });
+      .text(`${kind === 'SERVICE' ? 'LSO' : 'LPO'} NO: ${lpo.lpo_no}`, pageLeft + 12, y + 7, { continued: true, width: contentWidth / 2 });
     doc.font('Helvetica').fontSize(10).fillColor('#FFFFFF')
       .text(`Status: ${fmtStatus(lpo.status)}`, { align: 'right', width: contentWidth / 2 - 12 });
     y += 28 + 10;
@@ -847,29 +863,31 @@ async function generateLPO(lpo) {
     doc.font('Helvetica').fontSize(9).fillColor(GREY)
       .text(`Department: ${lpo.department?.name || lpo.unit_name || 'N/A'}`, col2X + 10, doc.y + 2)
       .text(`Issue Date: ${fmtDate(lpo.issue_date || lpo.created_at)}`, col2X + 10)
-      .text(`Delivery Date: ${fmtDate(lpo.delivery_date) || 'As agreed'}`, col2X + 10)
+      .text(`${kind === 'SERVICE' ? 'Complete By' : kind === 'MIXED' ? 'Delivery / Completion' : 'Delivery Date'}: ${fmtDate(lpo.delivery_date) || 'As agreed'}`, col2X + 10)
       .text(`Payment Terms: ${lpo.payment_terms || '30 days net on receipt of invoice'}`, col2X + 10, doc.y, { width: colW - 20 });
     y += infoBoxH + 14;
 
     // Items table — column widths must sum to ≤ contentWidth (483px on A4 with 56px margins)
     // no(24) + desc(180) + spec(90) + gap(4) + qty(40) + gap(4) + unit(76) + gap(4) + total(76) = 498 > 483
     // Adjusted: no(22) + desc(170) + spec(80) + gap(4) + qty(38) + gap(4) + unit(78) + gap(4) + total(78) = 478 ✓
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('ORDER ITEMS', pageLeft, y);
+    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text(kind === 'SERVICE' ? 'SERVICES ORDERED' : 'ORDER ITEMS', pageLeft, y);
     y = doc.y + 4;
-    const colWidths = { no: 22, desc: 170, spec: 80, qty: 38, unit: 78, total: 78 };
+    const colWidths = { no: 22, desc: 156, spec: 80, qty: 52, unit: 74, total: 76 };
     doc.rect(pageLeft, y, contentWidth, 22).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#FFFFFF');
     let cx = pageLeft + 4;
     doc.text('#', cx, y + 6, { width: colWidths.no }); cx += colWidths.no;
-    doc.text('Description', cx, y + 6, { width: colWidths.desc }); cx += colWidths.desc;
-    doc.text('Specifications', cx, y + 6, { width: colWidths.spec }); cx += colWidths.spec + 4;
+    doc.text(kind === 'SERVICE' ? 'Service' : 'Description', cx, y + 6, { width: colWidths.desc }); cx += colWidths.desc;
+    doc.text(kind === 'SERVICE' ? 'Scope of work' : 'Specifications', cx, y + 6, { width: colWidths.spec }); cx += colWidths.spec + 4;
     doc.text('Qty', cx, y + 6, { width: colWidths.qty, align: 'right' }); cx += colWidths.qty + 4;
     doc.text('Unit Price', cx, y + 6, { width: colWidths.unit, align: 'right' }); cx += colWidths.unit + 4;
     doc.text('Total (KES)', cx, y + 6, { width: colWidths.total, align: 'right' });
     y += 22;
 
     lpo.items.forEach((item, idx) => {
-      const rowH = 20;
+      // a long service name or scope of work wraps: the row grows to hold it
+      doc.font('Helvetica').fontSize(8.5);
+      const rowH = Math.max(20, Math.ceil(Math.max(doc.heightOfString(String(item.item_name || ''), { width: colWidths.desc }), doc.heightOfString(String(item.specifications || '-'), { width: colWidths.spec })) + 10));
       const bg = idx % 2 === 0 ? '#FFFFFF' : '#F9FAFB';
       doc.rect(pageLeft, y, contentWidth, rowH).fillColor(bg).fill();
       doc.rect(pageLeft, y, contentWidth, rowH).strokeColor('#E5E7EB').lineWidth(0.2).stroke();
@@ -878,7 +896,8 @@ async function generateLPO(lpo) {
       doc.text(`${idx + 1}`, cx, y + 5, { width: colWidths.no }); cx += colWidths.no;
       doc.text(item.item_name, cx, y + 5, { width: colWidths.desc }); cx += colWidths.desc;
       doc.text(item.specifications || '-', cx, y + 5, { width: colWidths.spec }); cx += colWidths.spec + 4;
-      doc.text(String(item.quantity), cx, y + 5, { width: colWidths.qty, align: 'right' }); cx += colWidths.qty + 4;
+      // a service is counted in what it is charged by: 3 months, 2 jobs
+      doc.text(item.item_type === 'SERVICE' && item.unit_of_measure ? `${item.quantity} ${String(item.unit_of_measure).slice(0, 8)}` : String(item.quantity), cx, y + 5, { width: colWidths.qty, align: 'right' }); cx += colWidths.qty + 4;
       doc.text(fmtKES(item.unit_price), cx, y + 5, { width: colWidths.unit, align: 'right' }); cx += colWidths.unit + 4;
       doc.font('Helvetica-Bold').text(fmtKES(item.total_price), cx, y + 5, { width: colWidths.total, align: 'right' });
       y += rowH;
@@ -1056,53 +1075,61 @@ async function generateGRN(grn) {
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
     const contentWidth = pageRight - pageLeft;
-    let y = await drawHeader(doc, 'Goods Received Note', customLogos);
+    const kind = orderKind(grn.items);
+    const svc = kind === 'SERVICE';
+    let y = await drawHeader(doc, svc ? 'Service Completion Note' : 'Goods Received Note', customLogos);
 
     doc.rect(pageLeft, y, contentWidth, 28).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#FFFFFF')
-      .text(`GRN NO: ${grn.grn_no}`, pageLeft + 12, y + 7, { continued: true, width: contentWidth / 2 });
+      .text(`${svc ? 'SCN' : 'GRN'} NO: ${grn.grn_no}`, pageLeft + 12, y + 7, { continued: true, width: contentWidth / 2 });
     doc.font('Helvetica').fontSize(10).fillColor('#FFFFFF')
       .text(`Status: ${fmtStatus(grn.status)}`, { align: 'right', width: contentWidth / 2 - 12 });
     y += 28 + 10;
 
-    const metaH = 56;
+    // a long supplier or department name wraps, so the rows are spaced out to hold it
+    const longMeta = [grn.lpo?.supplier?.name, grn.lpo?.department?.name || grn.lpo?.unit_name].some((v) => (v || '').length > 24);
+    const metaStep = longMeta ? 30 : 18;
+    const metaH = longMeta ? 78 : 56;
     doc.rect(pageLeft, y, contentWidth, metaH).fillColor('#F9FAFB').fill();
     doc.rect(pageLeft, y, contentWidth, metaH).strokeColor('#E5E7EB').lineWidth(0.4).stroke();
     doc.rect(pageLeft, y, 4, metaH).fillColor(GREEN).fill();
     [
-      ['LPO Reference:', grn.lpo?.lpo_no || 'N/A'],
-      ['Supplier:', grn.lpo?.supplier?.name || 'N/A'],
-      ['Date Received:', fmtDate(grn.received_date || grn.created_at)],
+      [svc ? 'LSO Reference:' : 'LPO Reference:', grn.lpo?.lpo_no || 'N/A'],
+      [svc ? 'Service Provider:' : 'Supplier:', grn.lpo?.supplier?.name || 'N/A'],
+      [svc ? 'Date Completed:' : 'Date Received:', fmtDate(grn.received_date || grn.created_at)],
       ['Department:', grn.lpo?.department?.name || grn.lpo?.unit_name || 'N/A'],
     ].forEach(([label, val], i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
       const rx = pageLeft + 14 + col * (contentWidth / 2);
-      const ry = y + 10 + row * 18;
+      const ry = y + 10 + row * metaStep;
       doc.font('Helvetica-Bold').fontSize(9.5).fillColor(DARK).text(label, rx, ry, { width: 130 });
       doc.font('Helvetica').fontSize(9.5).fillColor(GREY).text(val, rx + 133, ry, { width: contentWidth / 2 - 145 });
     });
     y += metaH + 14;
 
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('ITEMS RECEIVED', pageLeft, y);
+    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text(svc ? 'SERVICES RENDERED' : 'ITEMS RECEIVED', pageLeft, y);
     y = doc.y + 4;
-    const cols = { no: 24, name: 155, ordered: 62, received: 62, accepted: 62, cond: 78, notes: 97 };
+    // the columns add up to the width of the page (483), so the notes do not run past the right margin
+    const cols = { no: 20, name: 130, ordered: 46, received: 52, accepted: 46, cond: 66, notes: 105 };
     doc.rect(pageLeft, y, contentWidth, 22).fillColor(GREEN).fill();
     doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#FFFFFF');
     let cx = pageLeft + 4;
     doc.text('#', cx, y + 6, { width: cols.no }); cx += cols.no;
-    doc.text('Item Name', cx, y + 6, { width: cols.name }); cx += cols.name;
+    doc.text(svc ? 'Service' : 'Item Name', cx, y + 6, { width: cols.name }); cx += cols.name;
     doc.text('Ordered', cx, y + 6, { width: cols.ordered, align: 'right' }); cx += cols.ordered + 4;
-    doc.text('Received', cx, y + 6, { width: cols.received, align: 'right' }); cx += cols.received + 4;
+    doc.text(svc ? 'Completed' : 'Received', cx, y + 6, { width: cols.received, align: 'right' }); cx += cols.received + 4;
     doc.text('Accepted', cx, y + 6, { width: cols.accepted, align: 'right' }); cx += cols.accepted + 4;
-    doc.text('Condition', cx, y + 6, { width: cols.cond }); cx += cols.cond;
+    doc.text(svc ? 'Quality' : 'Condition', cx, y + 6, { width: cols.cond }); cx += cols.cond;
     doc.text('Notes', cx, y + 6, { width: cols.notes });
     y += 22;
 
     (grn.items || []).forEach((item, idx) => {
       const bg = idx % 2 === 0 ? '#FFFFFF' : '#F9FAFB';
-      doc.rect(pageLeft, y, contentWidth, 20).fillColor(bg).fill();
-      doc.rect(pageLeft, y, contentWidth, 20).strokeColor('#E5E7EB').lineWidth(0.2).stroke();
+      doc.font('Helvetica').fontSize(8.5);
+      const rowH = Math.max(20, Math.ceil(Math.max(doc.heightOfString(String(item.item_name || ''), { width: cols.name }), doc.heightOfString(String(item.notes || '-'), { width: cols.notes })) + 10));
+      doc.rect(pageLeft, y, contentWidth, rowH).fillColor(bg).fill();
+      doc.rect(pageLeft, y, contentWidth, rowH).strokeColor('#E5E7EB').lineWidth(0.2).stroke();
       doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
       cx = pageLeft + 4;
       doc.text(`${idx + 1}`, cx, y + 5, { width: cols.no }); cx += cols.no;
@@ -1110,9 +1137,10 @@ async function generateGRN(grn) {
       doc.text(String(item.quantity_ordered), cx, y + 5, { width: cols.ordered, align: 'right' }); cx += cols.ordered + 4;
       doc.text(String(item.quantity_received), cx, y + 5, { width: cols.received, align: 'right' }); cx += cols.received + 4;
       doc.text(String(item.quantity_accepted), cx, y + 5, { width: cols.accepted, align: 'right' }); cx += cols.accepted + 4;
-      doc.text(item.condition || '-', cx, y + 5, { width: cols.cond }); cx += cols.cond;
+      const quality = { GOOD: 'Satisfactory', PARTIAL: 'Partly done', DEFECTIVE: 'Not satisfactory', DAMAGED: 'Not satisfactory' };
+      doc.text(svc ? (quality[item.condition] || item.condition || '-') : (item.condition || '-'), cx, y + 5, { width: cols.cond }); cx += cols.cond;
       doc.text(item.notes || '-', cx, y + 5, { width: cols.notes });
-      y += 20;
+      y += rowH;
     });
     y += 14;
 
@@ -1126,7 +1154,7 @@ async function generateGRN(grn) {
 
     const sigW = (contentWidth - 20) / 2;
     doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK)
-      .text('Received by (Stores Officer):', pageLeft, y)
+      .text(svc ? 'Certified complete by (User Department / HOD):' : 'Received by (Stores Officer):', pageLeft, y)
       .text('Verified by (Procurement / Finance):', pageLeft + sigW + 20, y);
     y += 40;
     doc.moveTo(pageLeft, y).lineTo(pageLeft + sigW - 10, y).strokeColor('#9CA3AF').lineWidth(0.5).stroke();

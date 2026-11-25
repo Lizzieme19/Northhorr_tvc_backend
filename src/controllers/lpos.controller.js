@@ -3,10 +3,11 @@ const { readLineKind, carryKind, knownUnits, resolveRequester } = require('../se
 const { generateLPO } = require('../services/documentService');
 
 // Generate LPO number
-const generateLPONo = () => {
+// an order made up only of services is a Local Service Order (LSO)
+const generateLPONo = (prefix = 'LPO') => {
   const year = new Date().getFullYear();
   const rand = Math.floor(1000 + Math.random() * 9000);
-  return `LPO/${year}/${rand}`;
+  return `${prefix}/${year}/${rand}`;
 };
 
 // GET /api/lpos - List LPOs
@@ -151,7 +152,7 @@ const createLPO = async (req, res) => {
 
     const lpo = await prisma.lPO.create({
       data: {
-        lpo_no: generateLPONo(),
+        lpo_no: generateLPONo(lineKinds.length && lineKinds.every((k) => k.item_type === 'SERVICE') ? 'LSO' : 'LPO'),
         rfq_id,
         supplier_id,
         ...requester,

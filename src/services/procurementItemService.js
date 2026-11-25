@@ -8,7 +8,12 @@ const { ASSET_CLASSES, sentenceCase } = require('./assetRegisterService');
 // LPO and GRN so that receiving the goods can put them in the right place.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ITEM_TYPES = ['CONSUMABLE', 'ASSET'];
+const ITEM_TYPES = ['CONSUMABLE', 'ASSET', 'SERVICE'];
+
+// A service is work done for the college (repairs, security, catering...), not something that goes into stock or the
+// asset register. It is charged by a unit (a job, a month, an hour...) and is "received" as completed work.
+const SERVICE_CATEGORIES = ['Repairs & maintenance', 'Cleaning & sanitation', 'Security', 'Catering', 'Transport & hire', 'ICT & internet', 'Consultancy & professional fees', 'Training & workshops', 'Printing & branding', 'Utilities', 'Insurance', 'Legal & audit', 'Building works', 'Other'];
+const SERVICE_UNITS = ['job', 'lump sum', 'hour', 'day', 'week', 'month', 'year', 'visit', 'trip', 'person', 'session'];
 
 // Offered in the dropdown; the college can use any other unit by typing it
 const DEFAULT_UNITS = ['pcs', 'ream', 'box', 'packet', 'carton', 'dozen', 'pair', 'set', 'roll', 'bottle', 'tin', 'sachet', 'bag', 'kg', 'litre', 'metre', 'bundle'];
@@ -24,11 +29,22 @@ const normalizeUnit = (value, known = []) => {
 };
 
 // Validates and tidies the classification fields of one line (requisition, LPO or GRN).
+// A line is a consumable, an asset or a service.
 // Everything is optional: a line with no item_type is simply "not classified yet".
 const readLineKind = (item, known = []) => {
   const type = item.item_type ? String(item.item_type).toUpperCase() : null;
-  if (type && !ITEM_TYPES.includes(type)) throw fail('An item is either a consumable or an asset');
-  if (!type) return { item_type: null, unit_of_measure: normalizeUnit(item.unit_of_measure, known), inventory_item_id: null, asset_class: null, asset_category: null };
+  if (type && !ITEM_TYPES.includes(type)) throw fail('An item is a consumable, an asset or a service');
+  if (!type) return { item_type: null, unit_of_measure: normalizeUnit(item.unit_of_measure, known), inventory_item_id: null, asset_class: null, asset_category: null, service_category: null };
+  if (type === 'SERVICE') {
+    return {
+      item_type: 'SERVICE',
+      unit_of_measure: normalizeUnit(item.unit_of_measure, [...known, ...SERVICE_UNITS]) || 'job', // what the price is for: a job unless said otherwise
+      inventory_item_id: null,
+      asset_class: null,
+      asset_category: null,
+      service_category: item.service_category ? sentenceCase(item.service_category) : null,
+    };
+  }
   if (type === 'ASSET') {
     if (!ASSET_CLASSES[item.asset_class]) throw fail('Choose the type of asset (ICT, furniture, ...) for an asset line');
     return {
@@ -37,6 +53,7 @@ const readLineKind = (item, known = []) => {
       inventory_item_id: null,
       asset_class: item.asset_class,
       asset_category: item.asset_category ? sentenceCase(item.asset_category) : null,
+      service_category: null,
     };
   }
   return {
@@ -45,6 +62,7 @@ const readLineKind = (item, known = []) => {
     inventory_item_id: item.inventory_item_id || null,
     asset_class: null,
     asset_category: null,
+    service_category: null,
   };
 };
 
@@ -65,6 +83,7 @@ const carryKind = (line) => ({
   inventory_item_id: line.inventory_item_id || null,
   asset_class: line.asset_class || null,
   asset_category: line.asset_category || null,
+  service_category: line.service_category || null,
 });
 
 const nextStockCode = async () => {
@@ -106,4 +125,4 @@ const resolveRequester = async ({ department_id, unit_name }) => {
   return { department_id: null, unit_name: known || titled };
 };
 
-module.exports = { ITEM_TYPES, DEFAULT_UNITS, normalizeUnit, readLineKind, knownUnits, carryKind, nextStockCode, fail, requestingUnits, resolveRequester };
+module.exports = { ITEM_TYPES, SERVICE_CATEGORIES, SERVICE_UNITS, DEFAULT_UNITS, normalizeUnit, readLineKind, knownUnits, carryKind, nextStockCode, fail, requestingUnits, resolveRequester };

@@ -589,11 +589,12 @@ model RequisitionItem {
   specifications  String?
 
   // what is being bought: a consumable (goes to Inventory) or an asset (tagged one by one in the asset register)
-  item_type         String?  // CONSUMABLE | ASSET
+  item_type         String?  // CONSUMABLE | ASSET | SERVICE
   unit_of_measure   String?  // optional; for consumables (pcs, ream, box...)
   inventory_item_id String?  // the Inventory item, when it is a consumable already in stock
   asset_class       String?  // ICT, FURNITURE, ... when it is an asset
   asset_category    String?  // the asset item type, e.g. Computer monitor
+  service_category  String?  // the kind of service (repairs, security, catering...) when it is a service; its unit_of_measure is what it is charged by (job, month, hour...)
 
   created_at      DateTime @default(now())
 
@@ -678,11 +679,12 @@ model LPOItem {
   specifications  String?
 
   // what is being bought: a consumable (goes to Inventory) or an asset (tagged one by one in the asset register)
-  item_type         String?  // CONSUMABLE | ASSET
+  item_type         String?  // CONSUMABLE | ASSET | SERVICE
   unit_of_measure   String?  // optional; for consumables (pcs, ream, box...)
   inventory_item_id String?  // the Inventory item, when it is a consumable already in stock
   asset_class       String?  // ICT, FURNITURE, ... when it is an asset
   asset_category    String?  // the asset item type, e.g. Computer monitor
+  service_category  String?  // the kind of service (repairs, security, catering...) when it is a service; its unit_of_measure is what it is charged by (job, month, hour...)
 
   created_at      DateTime @default(now())
 
@@ -715,11 +717,12 @@ model GRNItem {
   quantity_accepted Int
 
   // what is being bought: a consumable (goes to Inventory) or an asset (tagged one by one in the asset register)
-  item_type         String?  // CONSUMABLE | ASSET
+  item_type         String?  // CONSUMABLE | ASSET | SERVICE
   unit_of_measure   String?  // optional; for consumables (pcs, ream, box...)
   inventory_item_id String?  // the Inventory item, when it is a consumable already in stock
   asset_class       String?  // ICT, FURNITURE, ... when it is an asset
   asset_category    String?  // the asset item type, e.g. Computer monitor
+  service_category  String?  // the kind of service (repairs, security, catering...) when it is a service; its unit_of_measure is what it is charged by (job, month, hour...)
   batch_number    String?
   expiry_date     DateTime?
   condition       String? // GOOD, DAMAGED, DEFECTIVE
