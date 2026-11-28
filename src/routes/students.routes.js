@@ -665,7 +665,7 @@ router.post('/:id/link-admission', authenticate, requireRoles('ADMIN', 'REGISTRA
  * @swagger
  * /api/students/{id}/unlink-admission:
  *   post:
- *     summary: Undo a link: this admission gets its own login back (Admin only)
+ *     summary: "Undo a link: this admission gets its own login back (Admin only)"
  *     tags: [Students]
  *     security:
  *       - bearerAuth: []

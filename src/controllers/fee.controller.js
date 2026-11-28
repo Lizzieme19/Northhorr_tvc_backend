@@ -4,6 +4,7 @@ const { chargeForStudentTerm, createStudentBalance, reconcileStudent } = require
 const { parsePaging, buildStudentWhere } = require('../utils/studentFilters');
 const { parsePaidAt, daysAgo, dayOf } = require('../utils/paymentDate');
 const { allocationView, checkAllocations } = require('../services/voteheadService');
+const { moveToVoteheads } = require('../services/allocationService');
 
 // Fees for a term come from the billing engine (services/billingService.js), shared by every enrol path
 const calculateTermFees = chargeForStudentTerm;
@@ -157,77 +158,36 @@ const allocatePayment = async (req, res) => {
 
     // No votehead can be given more than is due under it on this term's bill
     const view = await allocationView(studentId, termId);
-    const refusal = checkAllocations(view, allocations, new Map(feeTypes.map((f) => [f.id, f.name])));
+    const names = new Map(feeTypes.map((f) => [f.id, f.name]));
+    const refusal = checkAllocations(view, allocations, names);
     if (refusal) return res.status(400).json({ error: refusal });
 
-    // Get current unallocated payment total for this student & term
-    const unallocatedRecords = await prisma.feeRecord.findMany({
-      where: {
-        student_id: studentId,
-        term_id: termId,
-        fee_type_id: null,
-      },
-      orderBy: { paid_at: 'asc' },
-    });
-    const unallocatedTotal = unallocatedRecords.reduce((sum, r) => sum + r.amount, 0);
-    const availableToAllocate = unallocatedTotal;
-
-    if (totalAllocating > availableToAllocate + 0.01) {
-      return res.status(400).json({
-        error: `Cannot allocate KES ${totalAllocating}. Only KES ${availableToAllocate.toFixed(2)} is available to allocate.`,
-        availableToAllocate,
-      });
-    }
-
-    // Deduct allocated amounts from the unallocated records. The allocated payments keep the date the money
-    // was received (the oldest payment used), unless a date is given.
-    let remainingToDeduct = totalAllocating;
-    let inheritedDate = null;
-    for (const record of unallocatedRecords) {
-      if (remainingToDeduct <= 0.01) break;
-      const deduct = Math.min(record.amount, remainingToDeduct);
-      if (!inheritedDate) inheritedDate = record.paid_at;
-
-      if (record.amount - deduct <= 0.01) {
-        // Fully consumed, delete the unallocated record
-        await prisma.feeRecord.delete({ where: { id: record.id } });
-      } else {
-        // Partially consumed, reduce its amount
-        await prisma.feeRecord.update({
-          where: { id: record.id },
-          data: { amount: record.amount - deduct },
-        });
-      }
-      remainingToDeduct -= deduct;
-    }
-    const allocatedAt = paidAt || inheritedDate;
-
-    // Create allocation records
-    const createdRecords = [];
-    for (const allocation of allocations) {
-      if (!allocation.amount || parseFloat(allocation.amount) <= 0) continue;
-      const record = await prisma.feeRecord.create({
+    const note = String(notes ?? '').trim().replace(/\s+/g, ' ').slice(0, 300) || null;
+    // All or nothing, and two people allocating the same money at once cannot both succeed
+    const createdRecords = await prisma.$transaction(async (tx) => {
+      const parts = await moveToVoteheads(tx, { studentId, termId, allocations, note, paidAt });
+      await tx.auditTrail.create({
         data: {
-          student_id: studentId,
-          term_id: termId,
-          fee_type_id: allocation.fee_type_id,
-          amount: parseFloat(allocation.amount),
-          received_by: req.user.id,
-          notes: notes || `Manual allocation by finance officer`,
-          ...(allocatedAt && { paid_at: allocatedAt }),
+          user_id: req.user.id, action: 'PAYMENT_ALLOCATED', entity_type: 'STUDENT_FEES', entity_id: studentId,
+          new_values: JSON.stringify({
+            term_id: termId, total: totalAllocating, ...(note && { note }),
+            voteheads: parts.map((p) => ({ name: names.get(p.fee_type_id), amount: p.amount, record_id: p.id, reference_code: p.reference_code || undefined })),
+          }),
+          ip_address: req.ip || null, user_agent: req.headers?.['user-agent'] || null,
         },
-        include: { feeType: true },
       });
-      createdRecords.push(record);
-    }
+      return parts;
+    }, { isolationLevel: 'Serializable', timeout: 20000 });
+    const byId = new Map(feeTypes.map((f) => [f.id, f]));
 
     res.json({
       message: 'Payment allocated successfully',
-      allocations: createdRecords,
+      allocations: createdRecords.map((r) => ({ ...r, feeType: byId.get(r.fee_type_id) || null })),
       totalAllocated: totalAllocating,
     });
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.status) return res.status(err.status).json({ error: err.message, availableToAllocate: err.availableToAllocate });
+    if (err.code === 'P2034' || err.code === 'P2002') return res.status(409).json({ error: 'These payments were changed while you were allocating them. Check the amounts and try again.' });
     console.error('Allocate payment error:', err);
     res.status(500).json({ error: err.message || 'Server error' });
   }
