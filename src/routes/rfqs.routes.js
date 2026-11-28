@@ -6,6 +6,7 @@ const {
   getRFQs,
   getRFQById,
   createRFQ,
+  createRFQBatch,
   updateRFQ,
   submitQuotation,
   selectQuotation,
@@ -70,6 +71,21 @@ router.get('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), getRFQs);
  *         description: RFQ created
  */
 router.post('/', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), createRFQ);
+
+/**
+ * @swagger
+ * /api/rfqs/batch:
+ *   post:
+ *     summary: Create several RFQs from one requisition, each asking for its own lines from its own suppliers
+ *     description: Body - requisition_id, opening_date, closing_date, rfqs [{title, description, item_ids, supplier_ids}]. All are created or none.
+ *     tags: [RFQs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: The RFQs created
+ */
+router.post('/batch', authenticate, requireRoles('ADMIN', 'PROCUREMENT'), createRFQBatch);
 
 /**
  * @swagger

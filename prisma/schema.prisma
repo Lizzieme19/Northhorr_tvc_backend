@@ -613,6 +613,8 @@ model RFQ {
   status          String   @default("OPEN") // OPEN, CLOSED, AWARDED, CANCELLED
   awarded_to      String?
   notes           String?
+  // the requisition lines this RFQ asks for; empty = all of them
+  item_ids        String[] @default([])
 
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -970,6 +972,7 @@ model FeeType {
   fee_records FeeRecord[] @relation("FeeRecordFeeType")
   student_type_rules FeeTypeStudentType[]
   student_charges    StudentCharge[]
+  term_voteheads     TermVotehead[]
 }
 
 model Term {
@@ -988,6 +991,7 @@ model Term {
   fee_records FeeRecord[] @relation("FeeRecordTerm")
   student_balances StudentBalance[]
   student_charges  StudentCharge[]
+  voteheads        TermVotehead[]
   students Student[] @relation("StudentCurrentTerm")
   progressions StudentProgression[]
   type_fees    TermFee[]
@@ -1065,6 +1069,24 @@ model StudentCharge {
   @@index([term_id, fee_type_id])
 }
 
+// How a term fee is split into voteheads, used to allocate payments (Allocate Funds). It does not change any bill.
+// student_type_id empty = the standard split, used by every kind of student that has none of its own for the term.
+model TermVotehead {
+  id              String   @id @default(uuid())
+  term_id         String
+  student_type_id String   @default("")
+  fee_type_id     String
+  amount          Float
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  term            Term     @relation(fields: [term_id], references: [id], onDelete: Cascade)
+  fee_type        FeeType  @relation(fields: [fee_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([term_id, student_type_id, fee_type_id], name: "term_type_fee")
+}
+
 model StudentBalance {
   id          String   @id @default(uuid())
   student_id  String
@@ -1087,6 +1109,11 @@ model StudentBalance {
   // The kind of student this term was billed as. Empty = whatever the student's type is. Changing a student's type
   // from a chosen term onward leaves the terms before it billed as they were.
   student_type_id String?
+
+  // When the student was put in the term, by whom, and any note about it
+  assigned_on   DateTime?
+  assigned_note String?
+  assigned_by   String?
 
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt

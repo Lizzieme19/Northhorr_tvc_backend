@@ -273,6 +273,8 @@ const getAnalytics = async (req, res) => {
         applied_to_bills: round2(appliedPaid),
         outstanding: round2(outstanding),
         credit: round2(credit),
+        // what is owed less what others have overpaid: the "Outstanding" figure every screen and report leads with
+        net_outstanding: round2(outstanding - credit),
         // share of what was billed (plus any opening balance) that has been paid
         collection_rate: billed + opening > 0 ? round2((appliedPaid / (billed + opening)) * 100) : null,
         average_owing: counts.part_paid + counts.not_paid > 0 ? round2(outstanding / (counts.part_paid + counts.not_paid)) : 0,

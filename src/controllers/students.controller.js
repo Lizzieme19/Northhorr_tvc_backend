@@ -7,6 +7,8 @@ const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = re
 const fs = require('fs');
 const path = require('path');
 const { createStudentBalance, canEnrollInTerm } = require('../utils/termHelper');
+const { readAssignment } = require('../utils/assignment');
+const { planEmailChange, applyEmailChange } = require('../services/studentEmailService');
 const bcrypt = require('bcryptjs');
 const { parsePaging, buildStudentWhere, resolveFeeFilterIds } = require('../utils/studentFilters');
 const { mergeStudents } = require('./../services/studentProgressionService');
@@ -18,7 +20,7 @@ const studentIncludes = {
   current_term: { select: { id: true, name: true, academic_year: true } },
   student_type: { select: { id: true, name: true } },
   // the login owner (when this is a linked admission) and the admissions linked under this one
-  primary_student: { select: { id: true, admission_no: true } },
+  primary_student: { select: { id: true, admission_no: true, user: { select: { email: true } } } },
   linked_admissions: { select: { id: true, admission_no: true, level: true, status: true } },
   // the whole application record, so nothing the student gave (or the admin added) is left out when a student is pulled
   application: true,
@@ -153,7 +155,8 @@ const updateStudent = async (req, res) => {
           emergency_person, emergency_phone,
           // Personal details (kept on the application record)
           surname, other_names, gender, date_of_birth, nationality, religion, id_number, birth_cert_no,
-          phone, address, medical_conditions, allergies, father_deceased, mother_deceased, has_disability, disability } = req.body;
+          phone, address, medical_conditions, allergies, father_deceased, mother_deceased, has_disability, disability,
+          email } = req.body;
 
     const truthy = (v) => v === true || v === 'true';
     const clean = (v) => { const t = String(v ?? '').trim(); return t === '' ? null : t; };
@@ -188,6 +191,13 @@ const updateStudent = async (req, res) => {
       if (!dept || dept.id !== student.department_id) {
         return res.status(403).json({ error: 'Access denied. You can only update students in your department.' });
       }
+    }
+
+    // The sign-in email: Admin and Registrar only. Checked before anything is saved, so a refused email saves nothing.
+    let emailChange = null;
+    if (email !== undefined) {
+      if (!['ADMIN', 'REGISTRAR'].includes(req.user.role)) return res.status(403).json({ error: 'Only an Admin or Registrar can change a student\'s email' });
+      emailChange = await planEmailChange(req.params.id, email);
     }
 
     const updated = await prisma.student.update({
@@ -255,9 +265,12 @@ const updateStudent = async (req, res) => {
       });
     }
 
+    if (emailChange) await applyEmailChange(emailChange, req);
+
     const fresh = await prisma.student.findUnique({ where: { id: req.params.id }, include: studentIncludes });
     res.json(forRole(fresh || updated, req.user.role));
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message, fields: err.fields });
     console.error('Update student error:', err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -941,7 +954,7 @@ const assignStudentTerm = async (req, res) => {
     if (!term) return res.status(404).json({ error: 'Term not found' });
 
     // Create or update StudentBalance
-    const balance = await createStudentBalance(studentId, termId, student.level);
+    const balance = await createStudentBalance(studentId, termId, student.level, readAssignment(req));
 
     // Update student's current term
     await prisma.student.update({
@@ -961,6 +974,7 @@ const assignStudentTerm = async (req, res) => {
       }
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Term assignment error:', err);
     res.status(500).json({ error: 'Failed to assign term', details: err.message });
   }
@@ -984,6 +998,7 @@ const bulkAssignTerm = async (req, res) => {
 
     if (!term) return res.status(404).json({ error: 'Term not found' });
 
+    const assignment = readAssignment(req);
     const results = [];
     const errors = [];
 
@@ -1005,7 +1020,7 @@ const bulkAssignTerm = async (req, res) => {
         }
 
         // Create or update StudentBalance
-        const balance = await createStudentBalance(studentId, termId, student.level);
+        const balance = await createStudentBalance(studentId, termId, student.level, assignment);
 
         // Update student's current term
         await prisma.student.update({
@@ -1040,6 +1055,7 @@ const bulkAssignTerm = async (req, res) => {
       errors
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Bulk term assignment error:', err);
     res.status(500).json({ error: 'Failed to perform bulk term assignment', details: err.message });
   }

@@ -108,10 +108,10 @@ const computeCharge = ({ student, level, termCost, feeTypes, isFirstTerm, typeId
     const billing = billingOf(ft);
     if (billing === 'EVERY_TERM') {
       total += ft.amount;
-      breakdown.push({ code: ft.code, name: ft.name, amount: ft.amount, kind: 'every term' });
+      breakdown.push({ code: ft.code, name: ft.name, amount: ft.amount, kind: 'every term', fee_type_id: ft.id });
     } else if (billing === 'ONCE' && isFirstTerm) {
       total += ft.amount;
-      breakdown.push({ code: ft.code, name: ft.name, amount: ft.amount, kind: 'once' });
+      breakdown.push({ code: ft.code, name: ft.name, amount: ft.amount, kind: 'once', fee_type_id: ft.id });
     }
   }
 
@@ -294,7 +294,8 @@ const allStudentIdsWithBalances = async () => {
 
 // Put a student in a term (or refresh the row if they are already in it) with fees worked out
 // by the engine. This is what every assign/enrol path calls.
-const createStudentBalance = async (studentId, termId, level) => {
+// assignment (optional): { assigned_on: Date, note, by } - recorded when the student is first put in the term
+const createStudentBalance = async (studentId, termId, level, assignment = {}) => {
   const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, level: true, student_type_id: true } });
   if (!student) throw new Error('Student not found');
   const term = await prisma.term.findUnique({ where: { id: termId }, select: { id: true } });
@@ -309,8 +310,18 @@ const createStudentBalance = async (studentId, termId, level) => {
         student_id: studentId, term_id: termId, level: level || student.level, total_fees: 0, amount_paid: 0, balance: 0, status: 'PENDING',
         // billed as the kind of student they are now; later changes to their type do not rewrite this term
         student_type_id: student.student_type_id || (await prisma.studentType.findFirst({ where: { is_default: true }, select: { id: true } }))?.id || null,
+        assigned_on: assignment.assigned_on || new Date(),
+        assigned_note: assignment.note || null,
+        assigned_by: assignment.by || null,
       },
     });
+  } else if (assignment.note || assignment.assigned_on) {
+    // already in the term: record the date or note given now, if there was none
+    const data = {
+      ...(assignment.note && !existing.assigned_note && { assigned_note: assignment.note }),
+      ...(assignment.assigned_on && !existing.assigned_on && { assigned_on: assignment.assigned_on }),
+    };
+    if (Object.keys(data).length) await prisma.studentBalance.update({ where: { id: existing.id }, data: { ...data, assigned_by: existing.assigned_by || assignment.by || null } });
   }
 
   await reconcileStudent(studentId);

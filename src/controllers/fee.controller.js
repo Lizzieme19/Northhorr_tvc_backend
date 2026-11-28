@@ -1,8 +1,9 @@
 const prisma = require('../config/db');
-const { summarizeBalances } = require('../utils/feeTotals');
-const { chargeForStudentTerm, createStudentBalance } = require('../services/billingService');
+const { summarizeBalances, owedPosition } = require('../utils/feeTotals');
+const { chargeForStudentTerm, createStudentBalance, reconcileStudent } = require('../services/billingService');
 const { parsePaging, buildStudentWhere } = require('../utils/studentFilters');
 const { parsePaidAt, daysAgo, dayOf } = require('../utils/paymentDate');
+const { allocationView, checkAllocations } = require('../services/voteheadService');
 
 // Fees for a term come from the billing engine (services/billingService.js), shared by every enrol path
 const calculateTermFees = chargeForStudentTerm;
@@ -108,19 +109,9 @@ const recordFeePayment = async (req, res) => {
       include: { feeType: true },
     });
 
-    // Update student balance
-    const newAmountPaid = studentBalance.amount_paid + amount;
-    const newBalance = studentBalance.balance - amount;
-    const newStatus = newBalance <= 0 ? 'PAID' : (newAmountPaid > 0 ? 'PARTIAL' : 'PENDING');
-
-    const updatedBalance = await prisma.studentBalance.update({
-      where: { id: studentBalance.id },
-      data: {
-        amount_paid: newAmountPaid,
-        balance: Math.max(0, newBalance),
-        status: newStatus,
-      },
-    });
+    // Rebuild the term and every later one, so a credit or a debt is carried forward
+    await reconcileStudent(studentId);
+    const updatedBalance = await prisma.studentBalance.findUnique({ where: { id: studentBalance.id } });
 
     res.json({
       message: 'Payment recorded successfully',
@@ -163,6 +154,11 @@ const allocatePayment = async (req, res) => {
     if (feeTypes.length !== feeTypeIds.length) {
       return res.status(400).json({ error: 'One or more fee types not found' });
     }
+
+    // No votehead can be given more than is due under it on this term's bill
+    const view = await allocationView(studentId, termId);
+    const refusal = checkAllocations(view, allocations, new Map(feeTypes.map((f) => [f.id, f.name])));
+    if (refusal) return res.status(400).json({ error: refusal });
 
     // Get current unallocated payment total for this student & term
     const unallocatedRecords = await prisma.feeRecord.findMany({
@@ -231,6 +227,7 @@ const allocatePayment = async (req, res) => {
       totalAllocated: totalAllocating,
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Allocate payment error:', err);
     res.status(500).json({ error: err.message || 'Server error' });
   }
@@ -263,36 +260,13 @@ const getAllocationBreakdown = async (req, res) => {
     const totalAllocated = allocated.reduce((sum, r) => sum + r.amount, 0);
     const totalUnallocated = unallocated.reduce((sum, r) => sum + r.amount, 0);
 
-    // Get all applicable fee types for this student
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
-      select: { course_id: true, level: true },
-    });
-    const applicableFeeTypes = await prisma.feeType.findMany({
-      where: {
-        is_active: true,
-        is_disabled: false,
-        OR: [
-          { applies_to: 'ALL' },
-          { applies_to: 'SPECIFIC_LEVEL', level: student?.level },
-          { applies_to: 'SPECIFIC_COURSE', course_id: student?.course_id },
-        ],
-      },
-    });
-
-    // Build allocation summary per fee type
-    const feeTypeBreakdown = applicableFeeTypes.map((ft) => {
-      const ftRecords = allocated.filter((r) => r.fee_type_id === ft.id);
-      const amountPaid = ftRecords.reduce((sum, r) => sum + r.amount, 0);
-      return {
-        fee_type: { id: ft.id, name: ft.name, code: ft.code, amount: ft.amount, term_based: ft.term_based },
-        amount_paid: amountPaid,
-        required_amount: ft.amount,
-        balance: Math.max(0, ft.amount - amountPaid),
-        status: amountPaid >= ft.amount ? 'PAID' : amountPaid > 0 ? 'PARTIAL' : 'PENDING',
-        records: ftRecords,
-      };
-    });
+    // what is due under each votehead on this bill (see services/voteheadService.js)
+    const view = await allocationView(studentId, termId);
+    // the same lines in the shape earlier screens read
+    const feeTypeBreakdown = [
+      ...view.voteheads.map((l) => ({ fee_type: l.fee_type, amount_paid: l.paid, required_amount: l.billed + l.brought_forward, balance: l.balance, status: l.status === 'NOT_ON_BILL' ? 'PAID' : l.status })),
+      ...(view.unsplit?.fee_types || []).map((f) => ({ fee_type: { id: f.id, name: f.name, code: f.code }, amount_paid: f.paid, required_amount: view.unsplit.balance + f.paid, balance: view.unsplit.balance, status: f.paid > 0 ? 'PARTIAL' : 'PENDING' })),
+    ];
 
     res.json({
       balance: studentBalance,
@@ -301,10 +275,11 @@ const getAllocationBreakdown = async (req, res) => {
       totalUnallocated,
       unallocatedRecords: unallocated,
       allocatedRecords: allocated,
+      ...view,
       feeTypeBreakdown,
-      applicableFeeTypes,
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Get allocation breakdown error:', err);
     res.status(500).json({ error: err.message || 'Server error' });
   }
@@ -377,13 +352,9 @@ const bulkRecordFeePayment = async (req, res) => {
           },
         });
 
-        const newAmountPaid = studentBalance.amount_paid + amount;
-        const newBalance = studentBalance.balance - amount;
-        const newStatus = newBalance <= 0 ? 'PAID' : (newAmountPaid > 0 ? 'PARTIAL' : 'PENDING');
-        const updatedBalance = await prisma.studentBalance.update({
-          where: { id: studentBalance.id },
-          data: { amount_paid: newAmountPaid, balance: Math.max(0, newBalance), status: newStatus },
-        });
+        // rebuild the term and every later one, so a credit or a debt is carried forward
+        await reconcileStudent(studentId);
+        const updatedBalance = await prisma.studentBalance.findUnique({ where: { id: studentBalance.id } });
 
         results.push({
           studentId, termId, admission_no: label, amount,
@@ -473,6 +444,8 @@ const getStudentFeeSummary = async (req, res) => {
       carryover: balance.previous_balance_carryover || 0,
       fee_override: balance.fee_override,
       override_reason: balance.override_reason,
+      assigned_on: balance.assigned_on,
+      assigned_note: balance.assigned_note,
       amount_paid: balance.amount_paid,
       balance: balance.balance,
       status: balance.status,
@@ -721,7 +694,7 @@ const getBillingDashboard = async (req, res) => {
     const studentWhere = buildStudentWhere(req.query);
     if (Object.keys(studentWhere).length) where.student = studentWhere;
 
-    const [balances, total, summary, sums] = await Promise.all([
+    const [balances, total, summary, sums, money] = await Promise.all([
       prisma.studentBalance.findMany({
         where,
         include: {
@@ -753,13 +726,17 @@ const getBillingDashboard = async (req, res) => {
         where,
         _sum: { total_fees: true, amount_paid: true, balance: true, previous_balance_carryover: true },
       }),
+      prisma.studentBalance.findMany({
+        where,
+        select: { student_id: true, total_fees: true, amount_paid: true, previous_balance_carryover: true, carried_from_term_id: true },
+      }),
     ]);
 
     const totalFees = sums._sum.total_fees || 0;
     const totalPaid = sums._sum.amount_paid || 0;
-    // For one term the balance (which includes what was brought forward) is the amount due for it.
-    // Across terms, balances overlap, so use billed minus paid.
-    const totalBalance = termId ? (sums._sum.balance || 0) : totalFees - totalPaid;
+    // What is owed, worked out the same way as the finance overview (see utils/feeTotals.js)
+    const position = owedPosition(money, Boolean(termId));
+    const totalBalance = position.net;
     const totalCarryover = termId ? (sums._sum.previous_balance_carryover || 0) : 0;
 
     res.json({
@@ -769,6 +746,10 @@ const getBillingDashboard = async (req, res) => {
         totalFees,
         totalPaid,
         totalBalance,
+        totalOwed: position.owed,
+        totalCredit: position.credit,
+        studentsOwing: position.studentsOwing,
+        studentsInCredit: position.studentsInCredit,
         totalCarryover,
         byStatus: summary,
       },

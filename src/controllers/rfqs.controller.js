@@ -1,5 +1,6 @@
 const prisma = require('../config/db');
 const { generateRFQ } = require('../services/documentService');
+const { rfqItems } = require('../utils/rfqItems');
 
 // Generate RFQ number
 const generateRFQNo = () => {
@@ -41,7 +42,7 @@ const getRFQs = async (req, res) => {
     ]);
 
     res.json({
-      rfqs,
+      rfqs: rfqs.map((r) => ({ ...r, items: rfqItems(r) })),
       pagination: {
         total,
         page: parseInt(page),
@@ -78,58 +79,89 @@ const getRFQById = async (req, res) => {
 
     if (!rfq) return res.status(404).json({ error: 'RFQ not found' });
 
-    res.json(rfq);
+    res.json({ ...rfq, items: rfqItems(rfq) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-// POST /api/rfqs - Create RFQ from requisition
+const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+// Checks a set of RFQs for one requisition and creates them together: either all are made or none.
+// Each: { title, description?, item_ids?: [] (empty = every line), supplier_ids?: [] }
+const makeRFQs = async ({ requisition_id, opening_date, closing_date, list }) => {
+  if (!requisition_id) throw fail('Choose the requisition');
+  if (!opening_date || !closing_date) throw fail('Opening date and closing date are required');
+  const opens = new Date(opening_date);
+  const closes = new Date(closing_date);
+  if (isNaN(opens.getTime()) || isNaN(closes.getTime())) throw fail('Give real opening and closing dates');
+  if (closes < opens) throw fail('The closing date cannot be before the opening date');
+  if (!Array.isArray(list) || !list.length) throw fail('Add at least one RFQ');
+  if (list.length > 20) throw fail('Create at most 20 RFQs at a time');
+
+  const requisition = await prisma.purchaseRequisition.findUnique({ where: { id: requisition_id }, include: { items: true } });
+  if (!requisition) throw fail('Requisition not found', 404);
+  if (!['APPROVED', 'ORDERED'].includes(requisition.status)) throw fail('The requisition must be approved first');
+  const lines = new Map(requisition.items.map((i) => [i.id, i]));
+
+  const used = new Set();
+  const wanted = list.map((r, n) => {
+    const label = list.length > 1 ? `RFQ ${n + 1}: ` : '';
+    const title = String(r.title || '').trim();
+    if (!title) throw fail(`${label}give it a title`);
+    const ids = [...new Set(Array.isArray(r.item_ids) ? r.item_ids : [])];
+    if (list.length > 1 && !ids.length) throw fail(`${label}choose at least one item`);
+    for (const id of ids) {
+      if (!lines.has(id)) throw fail(`${label}one of the items is not on this requisition`);
+      if (used.has(id)) throw fail(`${lines.get(id).item_name} is on more than one of these RFQs`);
+      used.add(id);
+    }
+    return { title, description: r.description || null, item_ids: ids, supplier_ids: [...new Set(Array.isArray(r.supplier_ids) ? r.supplier_ids : [])] };
+  });
+
+  const numbers = new Set();
+  for (const w of wanted) {
+    let no;
+    do { no = generateRFQNo(); } while (numbers.has(no) || await prisma.rFQ.findUnique({ where: { rfq_no: no } }));
+    numbers.add(no);
+    w.rfq_no = no;
+  }
+
+  const stamp = Date.now();
+  const made = await prisma.$transaction(wanted.map((w) => prisma.rFQ.create({
+    data: {
+      rfq_no: w.rfq_no, requisition_id, title: w.title, description: w.description,
+      item_ids: w.item_ids, opening_date: opens, closing_date: closes, status: 'OPEN',
+      // a place for each invited supplier's quotation
+      quotations: { create: w.supplier_ids.map((supplier_id, k) => ({ supplier_id, quotation_no: `Q/${stamp}/${k + 1}`, amount: 0 })) },
+    },
+    include: { requisition: { include: { department: { select: { name: true } }, items: true } } },
+  })));
+  return made.map((r) => ({ ...r, items: rfqItems(r) }));
+};
+
+// POST /api/rfqs - Create one RFQ from a requisition (item_ids chooses the lines; none = all)
 const createRFQ = async (req, res) => {
   try {
-    const { requisition_id, title, description, opening_date, closing_date, supplier_ids } = req.body;
-
-    if (!requisition_id || !title || !opening_date || !closing_date) {
-      return res.status(400).json({ error: 'Requisition ID, title, opening date, and closing date are required' });
-    }
-
-    const rfq = await prisma.rFQ.create({
-      data: {
-        rfq_no: generateRFQNo(),
-        requisition_id,
-        title,
-        description,
-        opening_date: new Date(opening_date),
-        closing_date: new Date(closing_date),
-        status: 'OPEN',
-      },
-      include: {
-        requisition: {
-          include: {
-            department: { select: { name: true } },
-            items: true,
-          },
-        },
-      },
-    });
-
-    // Create quotations for invited suppliers
-    if (supplier_ids && Array.isArray(supplier_ids)) {
-      for (const supplier_id of supplier_ids) {
-        await prisma.quotation.create({
-          data: {
-            rfq_id: rfq.id,
-            supplier_id,
-            quotation_no: `Q/${Date.now()}`,
-            amount: 0,
-          },
-        });
-      }
-    }
-
+    const { requisition_id, title, description, opening_date, closing_date, supplier_ids, item_ids } = req.body;
+    const [rfq] = await makeRFQs({ requisition_id, opening_date, closing_date, list: [{ title, description, item_ids, supplier_ids }] });
     res.status(201).json(rfq);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// POST /api/rfqs/batch - Several RFQs from one requisition, each with its own lines and suppliers
+const createRFQBatch = async (req, res) => {
+  try {
+    const { requisition_id, opening_date, closing_date, rfqs } = req.body;
+    const made = await makeRFQs({ requisition_id, opening_date, closing_date, list: rfqs });
+    res.status(201).json({ rfqs: made });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -295,6 +327,7 @@ module.exports = {
   getRFQs,
   getRFQById,
   createRFQ,
+  createRFQBatch,
   updateRFQ,
   submitQuotation,
   selectQuotation,

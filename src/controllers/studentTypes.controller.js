@@ -109,6 +109,7 @@ const deleteType = async (req, res) => {
     ]);
     if (students || balances) throw fail(`${students} student${students === 1 ? '' : 's'} (and their term bills) use ${type.name}. Move them to another type, or switch it off instead.`, 409);
     if (fees || rules) throw fail(`${type.name} has term fees or fee type rules set. Clear them first.`, 409);
+    await prisma.termVotehead.deleteMany({ where: { student_type_id: type.id } });
     await prisma.studentType.delete({ where: { id: type.id } });
     await audit(req, { action: 'STUDENT_TYPE_REMOVED', entityId: type.id, oldValues: { name: type.name } });
     res.json({ message: 'Removed' });

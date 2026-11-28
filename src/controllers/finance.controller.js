@@ -1,3 +1,4 @@
+const { reconcileStudent } = require('../services/billingService');
 const prisma = require('../config/db');
 const { summarizeBalances } = require('../utils/feeTotals');
 const { parsePaging, buildStudentWhere, resolveFeeFilterIds } = require('../utils/studentFilters');
@@ -158,23 +159,8 @@ const markFeePaid = async (req, res) => {
       },
     });
 
-    // Update student balance if term-based fee
-    if (feeType.term_based && term_id) {
-      const existingBalance = await prisma.studentBalance.findUnique({
-        where: { student_id_term_id: { student_id: student.id, term_id } },
-      });
-
-      if (existingBalance) {
-        await prisma.studentBalance.update({
-          where: { id: existingBalance.id },
-          data: {
-            amount_paid: { increment: parseFloat(amount) || feeType.amount },
-            balance: { decrement: parseFloat(amount) || feeType.amount },
-            status: existingBalance.balance <= (parseFloat(amount) || feeType.amount) ? 'PAID' : 'PARTIAL',
-          },
-        });
-      }
-    }
+    // Count the payment on the term and carry the result into every later term
+    if (term_id) await reconcileStudent(student.id);
 
     // Send fee payment confirmation email
     const studentData = {

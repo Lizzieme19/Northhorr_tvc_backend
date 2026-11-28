@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { readAssignment } = require('../utils/assignment');
 const { parsePaidAt } = require('../utils/paymentDate');
 const {
   reconcileStudent,
@@ -185,7 +186,7 @@ const getFeeHistory = async (req, res) => {
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
 // Moves one student's term row (and its payments) to another term. Throws an error with a status on a refusal.
-const reassignTermCore = async (req, studentId, termId, toTermId, reason) => {
+const reassignTermCore = async (req, studentId, termId, toTermId, reason, assignment = null) => {
   if (!toTermId) throw fail('to_term_id is required');
   if (toTermId === termId) throw fail('Choose a different term');
 
@@ -209,7 +210,13 @@ const reassignTermCore = async (req, studentId, termId, toTermId, reason) => {
   await prisma.$transaction([
     prisma.studentBalance.update({
       where: { id: row.id },
-      data: { term_id: toTermId, carried_from_term_id: null, previous_balance_carryover: wasFirst ? row.previous_balance_carryover : 0 },
+      data: {
+        term_id: toTermId, carried_from_term_id: null, previous_balance_carryover: wasFirst ? row.previous_balance_carryover : 0,
+        // a date or note given with the move replaces what was recorded for the wrong term
+        ...(assignment?.assigned_on && { assigned_on: assignment.assigned_on }),
+        ...(assignment?.note && { assigned_note: assignment.note }),
+        ...((assignment?.assigned_on || assignment?.note) && { assigned_by: assignment.by }),
+      },
     }),
     prisma.feeRecord.updateMany({ where: { student_id: studentId, term_id: termId }, data: { term_id: toTermId } }),
     ...(student.current_term_id === termId ? [prisma.student.update({ where: { id: studentId }, data: { current_term_id: toTermId } })] : []),
@@ -263,7 +270,8 @@ const sendFailure = (res, err, fallback) => {
 const reassignTerm = async (req, res) => {
   try {
     const { id: studentId, termId } = req.params;
-    const r = await reassignTermCore(req, studentId, termId, req.body.to_term_id, req.body.reason);
+    const given = readAssignment(req);
+    const r = await reassignTermCore(req, studentId, termId, req.body.to_term_id, req.body.reason || given.note, given);
     // Registrars handle term assignment but not finance, so they get no amounts back
     if (req.user.role === 'REGISTRAR') return res.json({ message: `Moved from ${r.from} to ${r.to}` });
     res.json({ message: `Moved from ${r.from} to ${r.to}. Payments moved with it and the fees were recalculated.`, balances: await balancesOf(studentId) });
@@ -324,7 +332,8 @@ const bulkReassignTerm = async (req, res) => {
   try {
     const { studentIds, fromTermId, toTermId, reason } = req.body || {};
     if (!fromTermId || !toTermId) return res.status(400).json({ error: 'fromTermId and toTermId are required' });
-    await bulkTermAction(req, res, studentIds, (id) => reassignTermCore(req, id, fromTermId, toTermId, reason));
+    const given = readAssignment(req);
+    await bulkTermAction(req, res, studentIds, (id) => reassignTermCore(req, id, fromTermId, toTermId, reason || given.note, given));
   } catch (err) {
     sendFailure(res, err, 'Failed to move the term');
   }
@@ -367,8 +376,14 @@ const getStudentTerms = async (req, res) => {
     });
     const counts = await prisma.feeRecord.groupBy({ by: ['term_id'], where: { student_id: req.params.id }, _count: true });
     const paid = new Set(counts.filter((c) => c._count > 0).map((c) => c.term_id));
+    const byIds = [...new Set(rows.map((r) => r.assigned_by).filter(Boolean))];
+    const people = byIds.length ? await prisma.user.findMany({ where: { id: { in: byIds } }, select: { id: true, email: true } }) : [];
+    const email = new Map(people.map((u) => [u.id, u.email]));
     res.json({
-      terms: rows.map((r) => ({ term: r.term, level: r.level, has_payments: paid.has(r.term_id) })),
+      terms: rows.map((r) => ({
+        term: r.term, level: r.level, has_payments: paid.has(r.term_id),
+        assigned_on: r.assigned_on || r.created_at, assigned_note: r.assigned_note || null, assigned_by: email.get(r.assigned_by) || null,
+      })),
     });
   } catch (err) {
     console.error('Get student terms error:', err);

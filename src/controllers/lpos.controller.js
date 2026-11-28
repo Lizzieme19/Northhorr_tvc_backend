@@ -1,3 +1,4 @@
+const { rfqItems } = require('../utils/rfqItems');
 const prisma = require('../config/db');
 const { readLineKind, carryKind, knownUnits, resolveRequester } = require('../services/procurementItemService');
 const { generateLPO } = require('../services/documentService');
@@ -126,8 +127,9 @@ const createLPO = async (req, res) => {
           },
         },
       });
-      if (rfq && rfq.requisition && rfq.requisition.items && rfq.requisition.items.length > 0) {
-        lpoItems = rfq.requisition.items
+      if (rfqItems(rfq).length > 0) {
+        // only the lines this RFQ asked for
+        lpoItems = rfqItems(rfq)
           .filter(item => item.unit_price !== null && item.unit_price !== undefined)
           .map(item => ({
             item_name: item.item_name,

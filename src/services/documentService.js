@@ -1,3 +1,4 @@
+const { rfqItems } = require('../utils/rfqItems');
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
@@ -215,12 +216,16 @@ function drawFooter(doc, refText = '') {
   const pageRight = doc.page.width - doc.page.margins.right;
   const footerY = doc.page.height - 40;
   doc.moveTo(pageLeft, footerY).lineTo(pageRight, footerY).strokeColor(GREEN).lineWidth(0.5).stroke();
+  // the footer sits inside the bottom margin; without lifting the margin the text would start a blank second page
+  const bottom = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
   doc
     .fillColor(LIGHT_GREY).fontSize(7.5).font('Helvetica')
     .text(
       `${st.footer_text || ''}${refText ? (st.footer_text ? '  |  ' : '') + refText : ''}`,
       pageLeft, footerY + 6, { align: 'center', width: pageRight - pageLeft }
     );
+  doc.page.margins.bottom = bottom;
 }
 
 function fmtDate(d) {
@@ -1004,7 +1009,7 @@ async function generateRFQ(rfq) {
       y = doc.y + 14;
     }
 
-    const items = rfq.requisition?.items || [];
+    const items = rfqItems(rfq);
     if (items.length > 0) {
       doc.font('Helvetica-Bold').fontSize(10.5).fillColor(GREEN).text('ITEMS REQUIRED', pageLeft, y);
       y = doc.y + 4;
@@ -1022,18 +1027,23 @@ async function generateRFQ(rfq) {
       doc.text('Unit', cx, y + 6, { width: cols.unit });
       y += 22;
       items.forEach((item, idx) => {
+        const unit = item.unit_of_measure || (item.item_type === 'SERVICE' ? 'job' : 'pcs');
+        const cells = [`${idx + 1}`, item.item_name, item.description || '-', item.specifications || '-', String(item.quantity), unit];
+        const widths = [cols.no, cols.name, cols.desc, cols.spec, cols.qty, cols.unit];
+        // the row grows with the longest wrapped text
+        doc.font('Helvetica').fontSize(8.5);
+        const rowH = Math.max(20, ...cells.map((t, k) => doc.heightOfString(t, { width: widths[k] - 3 }) + 10));
+        if (y + rowH > doc.page.height - doc.page.margins.bottom - 20) { doc.addPage(); y = doc.page.margins.top; }
         const bg = idx % 2 === 0 ? '#FFFFFF' : '#F9FAFB';
-        doc.rect(pageLeft, y, contentWidth, 20).fillColor(bg).fill();
-        doc.rect(pageLeft, y, contentWidth, 20).strokeColor('#E5E7EB').lineWidth(0.2).stroke();
+        doc.rect(pageLeft, y, contentWidth, rowH).fillColor(bg).fill();
+        doc.rect(pageLeft, y, contentWidth, rowH).strokeColor('#E5E7EB').lineWidth(0.2).stroke();
         doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
         cx = pageLeft + 4;
-        doc.text(`${idx + 1}`, cx, y + 5, { width: cols.no }); cx += cols.no;
-        doc.text(item.item_name, cx, y + 5, { width: cols.name }); cx += cols.name;
-        doc.text(item.description || '-', cx, y + 5, { width: cols.desc }); cx += cols.desc;
-        doc.text(item.specifications || '-', cx, y + 5, { width: cols.spec }); cx += cols.spec + 4;
-        doc.text(String(item.quantity), cx, y + 5, { width: cols.qty, align: 'right' }); cx += cols.qty + 4;
-        doc.text(item.unit || 'pcs', cx, y + 5, { width: cols.unit });
-        y += 20;
+        cells.forEach((t, k) => {
+          doc.text(t, cx, y + 5, { width: widths[k] - 3, ...(k === 4 && { align: 'right' }) });
+          cx += widths[k] + (k === 3 || k === 4 ? 4 : 0);
+        });
+        y += rowH;
       });
       y += 14;
     }

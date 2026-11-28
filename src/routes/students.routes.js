@@ -256,6 +256,9 @@ router.get('/:id', authenticate, getStudentById);
  *                 type: string
  *               department_id:
  *                 type: string
+ *               email:
+ *                 type: string
+ *                 description: The sign-in email. Admin and Registrar only. Linked admissions share it.
  *               profile_picture_url:
  *                 type: string
  *               id_copy_front_url:
@@ -457,6 +460,11 @@ router.post('/:id/term/:termId', authenticate, requireRoles('ADMIN', 'REGISTRAR'
  *                 items:
  *                   type: string
  *               termId:
+ *                 type: string
+ *               assigned_on:
+ *                 type: string
+ *                 description: Date of the allocation (YYYY-MM-DD), today or earlier. Today if left out.
+ *               notes:
  *                 type: string
  *     responses:
  *       200:

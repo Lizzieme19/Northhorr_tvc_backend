@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { requireRoles } = require('../middleware/roles');
+const voteheads = require('../controllers/voteheads.controller');
 const {
   getAllTerms,
   getTermById,
@@ -156,6 +157,34 @@ router.post('/', authenticate, requireRoles('ADMIN'), createTerm);
 router.get('/:id/fee-impact', authenticate, requireRoles('ADMIN', 'FINANCE'), getTermFeeImpact);
 
 router.patch('/:id', authenticate, requireRoles('ADMIN'), updateTerm);
+
+/**
+ * @swagger
+ * /api/terms/{id}/voteheads:
+ *   get:
+ *     summary: How the term fee is split into voteheads, per kind of student (Admin/Finance)
+ *     tags: [Terms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: The saved splits
+ *   put:
+ *     summary: Save the split for one kind of student; it must add up to the term fee. Bills are not changed. (Admin/Finance)
+ *     description: Body - student_type_id ('' for the standard split), rows [{fee_type_id, amount}], also_term_ids (other terms to give the same split).
+ *     tags: [Terms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: The terms it was saved for, and any left alone
+ */
+router.get('/:id/voteheads', authenticate, requireRoles('ADMIN', 'FINANCE'), voteheads.getVoteheads);
+router.put('/:id/voteheads', authenticate, requireRoles('ADMIN', 'FINANCE'), voteheads.saveVoteheads);
 
 /**
  * @swagger
